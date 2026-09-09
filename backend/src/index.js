@@ -1,12 +1,12 @@
 /**
- * SteamLocked Worker.
+ * SteamLocked backend API (Cloudflare Worker).
  *
- * Static files in ./public are served automatically by the `assets` binding
- * configured in wrangler.jsonc. This handler only runs for requests that don't
- * match a static asset — put API routes / dynamic logic here as the project grows.
+ * The frontend is a static site on GitHub Pages; this Worker handles all
+ * dynamic work — fetching and shaping Steam data for that frontend.
+ * Add routes under /api/* as features land.
  */
 
-// Origins allowed to call this Worker from browser JavaScript.
+// Origins allowed to call this API from browser JavaScript.
 const ALLOWED_ORIGINS = new Set([
   "https://tnargw.github.io",
   "http://localhost:3000",
@@ -29,21 +29,31 @@ function corsHeaders(request) {
   return {};
 }
 
+function json(data, init = {}, cors = {}) {
+  return Response.json(data, {
+    ...init,
+    headers: { ...cors, ...(init.headers || {}) },
+  });
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const cors = corsHeaders(request);
 
-    // Preflight
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: cors });
     }
 
-    if (url.pathname === "/health") {
-      return Response.json({ ok: true }, { headers: cors });
+    switch (url.pathname) {
+      case "/":
+        return json({ service: "steamlocked-api", ok: true }, {}, cors);
+      case "/health":
+        return json({ ok: true }, {}, cors);
     }
 
-    // Fall back to the static site (index.html) for everything else.
-    return env.ASSETS.fetch(request);
+    // TODO: /api/steam/* routes for Steam data.
+
+    return json({ error: "Not found" }, { status: 404 }, cors);
   },
 };
