@@ -1,182 +1,89 @@
 /**
  * SteamLocked backend API (Cloudflare Worker).
  *
- * The frontend is a static site on GitHub Pages; this Worker handles all
- * dynamic work — fetching and shaping Steam data for that frontend.
+ * A Taskman-style challenge tracker: sign in through Steam, pick a game, roll a
+ * random achievement you haven't earned, and it stays locked in until you
+ * actually unlock it — verified against the Steam API, not self-reported.
  *
- * Routes:
- *   GET /                        service info
- *   GET /health                  liveness
- *   GET /api/steam/profile       ?steamid=            -> GetPlayerSummaries
- *   GET /api/steam/owned-games   ?steamid=            -> GetOwnedGames
- *   GET /api/steam/achievements  ?steamid=&appid=     -> GetPlayerAchievements
+ *   GET  /health
+ *   GET  /api/steam/trending?limit=
+ *   GET  /auth/steam/login?return=
+ *   GET  /auth/steam/callback
+ *   GET  /api/me                              (auth)
+ *   GET  /api/me/games                        (auth)
+ *   GET  /api/games/:appid/achievements       (auth)
+ *   GET  /api/games/:appid/roll?difficulty=&exclude=   (auth)
  *
- * Requires the STEAM_API_KEY secret:
- *   cd backend && npx wrangler secret put STEAM_API_KEY
- * For local dev put it in backend/.dev.vars (see .dev.vars.example).
+ * Secrets: STEAM_API_KEY, SESSION_SECRET.
  */
 
-// Origins allowed to call this API from browser JavaScript.
-const ALLOWED_ORIGINS = new Set([
-  "https://tnargw.github.io",
-  "http://localhost:3000",
-  "http://localhost:5173",
-  "http://127.0.0.1:3000",
-  "http://127.0.0.1:5173",
-]);
+import { ApiError, corsHeaders, isAppId, json } from "./http.js";
+import { beginLogin, completeLogin, requireUser } from "./auth.js";
+import * as steam from "./steam.js";
 
-const STEAM_API = "https://api.steampowered.com";
-const EDGE_TTL_SECONDS = 300;
+const DIFFICULTIES = new Set(["any", "easy", "medium", "hard", "insane"]);
 
-function corsHeaders(request) {
-  const origin = request.headers.get("Origin");
-  if (origin && ALLOWED_ORIGINS.has(origin)) {
-    return {
-      "Access-Control-Allow-Origin": origin,
-      "Access-Control-Allow-Methods": "GET, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type",
-      "Access-Control-Max-Age": "86400",
-      Vary: "Origin",
-    };
-  }
-  return {};
-}
+async function roll(env, steamid, appid, url, ctx) {
+  const data = await steam.achievements(env, steamid, appid, ctx);
+  if (!data.available) throw new ApiError(409, data.reason);
 
-function json(data, init = {}, cors = {}) {
-  return Response.json(data, {
-    ...init,
-    headers: { ...cors, ...(init.headers || {}) },
-  });
-}
-
-const isSteamId64 = (v) => typeof v === "string" && /^\d{17}$/.test(v);
-const isAppId = (v) => typeof v === "string" && /^\d{1,10}$/.test(v);
-
-class ApiError extends Error {
-  constructor(status, message) {
-    super(message);
-    this.status = status;
-  }
-}
-
-/** Call a Steam Web API method and return its parsed JSON body. */
-async function steamGet(env, path, params) {
-  if (!env.STEAM_API_KEY) {
-    throw new ApiError(500, "STEAM_API_KEY is not configured on this Worker");
-  }
-  const url = new URL(STEAM_API + path);
-  url.searchParams.set("key", env.STEAM_API_KEY);
-  url.searchParams.set("format", "json");
-  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
-
-  const res = await fetch(url, { cf: { cacheTtl: EDGE_TTL_SECONDS } });
-  if (res.status === 401 || res.status === 403) {
-    throw new ApiError(502, "Steam rejected the request (bad API key or private data)");
-  }
-  if (!res.ok) {
-    throw new ApiError(502, `Steam API responded ${res.status}`);
-  }
-  return res.json();
-}
-
-async function getProfile(env, url) {
-  const steamid = url.searchParams.get("steamid");
-  if (!isSteamId64(steamid)) throw new ApiError(400, "steamid must be a 17-digit SteamID64");
-
-  const data = await steamGet(env, "/ISteamUser/GetPlayerSummaries/v2/", { steamids: steamid });
-  const player = data?.response?.players?.[0];
-  if (!player) throw new ApiError(404, "No Steam profile found for that steamid");
-
-  return {
-    steamid: player.steamid,
-    name: player.personaname,
-    avatar: player.avatarfull,
-    profileUrl: player.profileurl,
-    // 1 = public, 3 = friends-only/private for game details
-    visibility: player.communityvisibilitystate,
-  };
-}
-
-async function getOwnedGames(env, url) {
-  const steamid = url.searchParams.get("steamid");
-  if (!isSteamId64(steamid)) throw new ApiError(400, "steamid must be a 17-digit SteamID64");
-
-  const data = await steamGet(env, "/IPlayerService/GetOwnedGames/v1/", {
-    steamid,
-    include_appinfo: "1",
-    include_played_free_games: "1",
-  });
-
-  const response = data?.response ?? {};
-  // Steam returns an empty object when the profile's game details are private.
-  if (response.games === undefined) {
-    return { private: true, count: 0, games: [] };
+  const locked = data.achievements.filter((a) => !a.unlocked);
+  if (locked.length === 0) {
+    throw new ApiError(409, "Every achievement is already unlocked — nothing left to roll.");
   }
 
-  const games = response.games.map((g) => ({
-    appid: g.appid,
-    name: g.name,
-    playtimeMinutes: g.playtime_forever ?? 0,
-    lastPlayed: g.rtime_last_played ?? 0,
-    iconUrl: g.img_icon_url
-      ? `https://media.steampowered.com/steamcommunity/public/images/apps/${g.appid}/${g.img_icon_url}.jpg`
-      : null,
-    headerUrl: `https://cdn.cloudflare.steamstatic.com/steam/apps/${g.appid}/header.jpg`,
-  }));
-  games.sort((a, b) => b.playtimeMinutes - a.playtimeMinutes);
+  const difficulty = url.searchParams.get("difficulty") ?? "any";
+  if (!DIFFICULTIES.has(difficulty)) throw new ApiError(400, "Unknown difficulty");
 
-  return { private: false, count: response.game_count ?? games.length, games };
-}
+  const exclude = url.searchParams.get("exclude");
+  let pool = difficulty === "any" ? locked : locked.filter((a) => a.tier === difficulty);
+  // Don't hand back the task the player just skipped, unless it's the only one.
+  if (exclude && pool.length > 1) pool = pool.filter((a) => a.key !== exclude);
 
-async function getAchievements(env, url) {
-  const steamid = url.searchParams.get("steamid");
-  const appid = url.searchParams.get("appid");
-  if (!isSteamId64(steamid)) throw new ApiError(400, "steamid must be a 17-digit SteamID64");
-  if (!isAppId(appid)) throw new ApiError(400, "appid must be a numeric Steam app id");
-
-  let data;
-  try {
-    data = await steamGet(env, "/ISteamUserStats/GetPlayerAchievements/v1/", {
-      steamid,
-      appid,
-      l: "english",
-    });
-  } catch (err) {
-    // Steam 400s for games with no achievement schema or a private profile.
-    if (err instanceof ApiError && err.status === 502) {
-      return { appid: Number(appid), available: false, achievements: [] };
-    }
-    throw err;
+  if (pool.length === 0) {
+    throw new ApiError(
+      409,
+      `No ${difficulty} achievements left in this game. Try a different difficulty.`,
+    );
   }
-
-  const stats = data?.playerstats ?? {};
-  if (!stats.success || !Array.isArray(stats.achievements)) {
-    return { appid: Number(appid), available: false, achievements: [] };
-  }
-
-  const achievements = stats.achievements.map((a) => ({
-    key: a.apiname,
-    name: a.name || a.apiname,
-    description: a.description || "",
-    unlocked: a.achieved === 1,
-    unlockedAt: a.unlocktime || 0,
-  }));
 
   return {
     appid: Number(appid),
-    game: stats.gameName ?? null,
-    available: true,
-    unlockedCount: achievements.filter((a) => a.unlocked).length,
-    total: achievements.length,
-    achievements,
+    game: data.game,
+    task: pool[Math.floor(Math.random() * pool.length)],
+    poolSize: pool.length,
+    locked: locked.length,
+    unlocked: data.unlocked,
+    total: data.total,
   };
 }
 
-const ROUTES = {
-  "/api/steam/profile": getProfile,
-  "/api/steam/owned-games": getOwnedGames,
-  "/api/steam/achievements": getAchievements,
-};
+async function route(request, url, env, ctx) {
+  const path = url.pathname;
+
+  if (path === "/") return { service: "steamlocked-api", ok: true };
+  if (path === "/health") return { ok: true };
+  if (path === "/api/steam/trending") return steam.trending(url, ctx);
+
+  if (path === "/api/me") {
+    return steam.profile(env, await requireUser(request, env));
+  }
+  if (path === "/api/me/games") {
+    return steam.ownedGames(env, await requireUser(request, env));
+  }
+
+  const match = path.match(/^\/api\/games\/(\d{1,10})\/(achievements|roll)$/);
+  if (match) {
+    const [, appid, action] = match;
+    if (!isAppId(appid)) throw new ApiError(400, "Invalid app id");
+    const steamid = await requireUser(request, env);
+    return action === "achievements"
+      ? steam.achievements(env, steamid, appid, ctx)
+      : roll(env, steamid, appid, url, ctx);
+  }
+
+  throw new ApiError(404, "Not found");
+}
 
 export default {
   async fetch(request, env, ctx) {
@@ -187,30 +94,28 @@ export default {
       return new Response(null, { status: 204, headers: cors });
     }
 
-    if (url.pathname === "/") return json({ service: "steamlocked-api", ok: true }, {}, cors);
-    if (url.pathname === "/health") return json({ ok: true }, {}, cors);
+    // Auth endpoints are browser redirects, not fetch() calls — they return
+    // 302s rather than JSON, so they sit outside the normal route table.
+    try {
+      if (url.pathname === "/auth/steam/login") {
+        return beginLogin(request, url, url.origin);
+      }
+      if (url.pathname === "/auth/steam/callback") {
+        return await completeLogin(request, url, env);
+      }
+    } catch (err) {
+      const status = err instanceof ApiError ? err.status : 500;
+      if (status >= 500) console.error(err);
+      return json({ error: err.message || "Internal error" }, { status }, cors);
+    }
 
-    const handler = ROUTES[url.pathname];
-    if (!handler) return json({ error: "Not found" }, { status: 404 }, cors);
     if (request.method !== "GET") {
       return json({ error: "Method not allowed" }, { status: 405 }, cors);
     }
 
-    // Serve identical requests from the edge cache for a few minutes.
-    const cache = caches.default;
-    const cacheKey = new Request(url.toString(), request);
-    const cached = await cache.match(cacheKey);
-    if (cached) return cached;
-
     try {
-      const body = await handler(env, url);
-      const response = json(
-        body,
-        { headers: { "Cache-Control": `public, max-age=${EDGE_TTL_SECONDS}` } },
-        cors,
-      );
-      ctx.waitUntil(cache.put(cacheKey, response.clone()));
-      return response;
+      const body = await route(request, url, env, ctx);
+      return json(body, {}, cors);
     } catch (err) {
       const status = err instanceof ApiError ? err.status : 500;
       if (status >= 500) console.error(err);

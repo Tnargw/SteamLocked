@@ -1,3 +1,8 @@
 # Copy to .dev.vars and fill in. .dev.vars is gitignored.
-# Get a key at https://steamcommunity.com/dev/apikey
+
+# https://steamcommunity.com/dev/apikey
 STEAM_API_KEY=
+
+# Any long random string — signs session tokens.
+# Generate one: node -e "console.log(crypto.randomUUID()+crypto.randomUUID())"
+SESSION_SECRET=

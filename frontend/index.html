@@ -4,23 +4,38 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>SteamLocked</title>
+  <meta name="description" content="A Taskman-style challenge tracker for any Steam game: roll a task, complete it, unlock the next.">
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-  <h1>SteamLocked</h1>
+  <a class="skip-link" href="#main">Skip to content</a>
 
-  <form id="lookup">
-    <label>
-      SteamID64
-      <input id="steamid" name="steamid" inputmode="numeric" pattern="\d{17}"
-             placeholder="76561197960287930" required>
-    </label>
-    <button type="submit">Load games</button>
-  </form>
+  <header class="site-header">
+    <div class="wrap header-inner">
+      <a class="brand" href="#/">
+        <span class="brand-lock" aria-hidden="true">&#128274;</span>
+        <span>Steam<strong>Locked</strong></span>
+      </a>
+      <div id="account" class="account"></div>
+    </div>
+  </header>
 
-  <p id="status"></p>
-  <ul id="games"></ul>
+  <main id="main" class="wrap">
+    <!-- Views are swapped in here by js/app.js -->
+    <div id="view" aria-live="polite"></div>
+  </main>
 
-  <script src="js/app.js"></script>
+  <footer class="site-footer">
+    <div class="wrap">
+      <p>
+        Not affiliated with Valve. Game data from the Steam Web API.
+        Inspired by RuneScape&rsquo;s Taskman.
+      </p>
+    </div>
+  </footer>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <script type="module" src="js/app.js"></script>
 </body>
 </html>
