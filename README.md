@@ -67,40 +67,6 @@ Open <http://localhost:5173>. The frontend auto-targets `localhost:8787` when
 served from localhost. Use port 5173 or 3000 — those origins are in the Worker's
 CORS and redirect allowlists.
 
-## Tests
-
-```bash
-cd backend  && npm test    # 89 tests
-cd frontend && npm test    # 37 tests
-```
-
-Both suites use Vitest with a verbose reporter, so the output names every
-individual behaviour being checked rather than a per-file summary.
-
-The backend suite runs **inside workerd** via
-`@cloudflare/vitest-pool-workers`, so `caches.default`, `crypto.subtle` and
-bindings behave as they do in production. Outbound calls to Steam are stubbed
-and any un-stubbed call throws — a test can never quietly hit the live API.
-
-What's covered:
-
-| Area                | Examples                                                        |
-| ------------------- | --------------------------------------------------------------- |
-| Session tokens      | Round-trip, tampered signature, forged payload, expiry, wrong secret |
-| Open-redirect guard | Look-alike domains, http downgrade, `javascript:` URLs           |
-| OpenID callback     | Verifies with Steam rather than trusting the redirect            |
-| CORS                | Allowed vs disallowed origins, preflight, headers on error responses |
-| Roll mechanic       | Never rolls an unlocked achievement, difficulty filters, exclusions, 100%-complete |
-| Secret hygiene      | API key goes to Steam, never into a response body                |
-| Taskman rules       | One active task per game, skips counted separately from completions |
-| Storage failures    | Private browsing, corrupt JSON, unreadable storage               |
-
-CI runs both suites on every push and pull request, and **both deploy workflows
-gate on them** — a red suite means nothing ships.
-
-`compatibility_date` in `wrangler.jsonc` must stay at or below the date the
-pinned workerd binary supports, or Vitest refuses to start.
-
 ## Deploy setup (one-time)
 
 - **Frontend:** repo Settings → Pages → Source → **GitHub Actions**.
