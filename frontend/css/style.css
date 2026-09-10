@@ -58,7 +58,7 @@ p { margin: 0 0 .75rem; }
   backdrop-filter: blur(8px);
   position: sticky; top: 0; z-index: 5;
 }
-.header-inner { display: flex; align-items: center; justify-content: space-between; gap: 1rem; min-height: 60px; }
+.header-inner { display: flex; align-items: center; justify-content: space-between; gap: 1rem; min-height: 72px; }
 
 .brand {
   display: inline-flex; align-items: center; gap: .5rem;
@@ -118,7 +118,10 @@ p { margin: 0 0 .75rem; }
 
 /* --- layout blocks --------------------------------------------------------- */
 
-main { flex: 1; padding: 1.75rem 1.25rem 4rem; }
+main { flex: 1; }
+/* <main> also carries .wrap, whose `padding` shorthand zeroes the block sides.
+   Matching that specificity is what makes this apply at all. */
+main.wrap { padding-block: 2.75rem 5.5rem; }
 
 .panel {
   background: var(--panel);
@@ -314,7 +317,7 @@ main { flex: 1; padding: 1.75rem 1.25rem 4rem; }
 
 .site-footer {
   border-top: 1px solid var(--line);
-  padding: 1.25rem 0; margin-top: auto;
+  padding: 1.75rem 0; margin-top: auto;
   font-size: .82rem; color: var(--ink-dim);
 }
 .site-footer p { margin: 0; }
