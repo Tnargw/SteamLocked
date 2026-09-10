@@ -34,5 +34,7 @@ jobs:
           workingDirectory: backend
           secrets: |
             STEAM_API_KEY
+            SESSION_SECRET
         env:
           STEAM_API_KEY: ${{ secrets.STEAM_API_KEY }}
+          SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
