@@ -6,10 +6,16 @@ on:
     paths:
       - "backend/**"
       - ".github/workflows/deploy-backend.yml"
+      - ".github/workflows/test.yml"
   workflow_dispatch:
 
 jobs:
+  # Nothing reaches Cloudflare unless the suite is green.
+  test:
+    uses: ./.github/workflows/test.yml
+
   deploy:
+    needs: test
     runs-on: ubuntu-latest
     concurrency: deploy-backend-${{ github.ref }}
     defaults:
