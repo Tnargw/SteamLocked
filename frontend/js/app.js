@@ -2,6 +2,7 @@
 
 import * as api from "./api.js";
 import * as store from "./store.js";
+import { hueFor, initials } from "./art.js";
 
 const view = document.getElementById("view");
 const accountEl = document.getElementById("account");
@@ -27,6 +28,38 @@ function h(tag, props = {}, ...children) {
     node.append(child instanceof Node ? child : String(child));
   }
   return node;
+}
+
+/**
+ * Steam header art, with a generated tile for apps that have none.
+ * Tools, soundtracks, betas and delisted titles stay in a library but 404 on
+ * every CDN path, so a bare <img> would show a broken-image icon instead.
+ */
+function gameArt(game, className) {
+  const frame = h("div", { class: ["art", className].filter(Boolean).join(" ") });
+  const img = h("img", { src: game.headerUrl, alt: "", loading: "lazy" });
+  img.addEventListener("error", () => frame.replaceChildren(artFallback(game)), { once: true });
+  frame.append(img);
+  return frame;
+}
+
+function artFallback(game) {
+  const tile = h("div", { class: "art-fallback" }, h("span", {}, initials(game.name)));
+  tile.style.setProperty("--hue", String(hueFor(game.appid)));
+  return tile;
+}
+
+/**
+ * Small icon that degrades to an empty tile of the same size. It swaps rather
+ * than removes: these sit in fixed grid columns, so removing one would shift
+ * the row's text into the icon slot.
+ */
+function iconImg(src, className) {
+  const blank = () => h("span", { class: ["icon-blank", className].filter(Boolean).join(" ") });
+  if (!src) return blank();
+  const img = h("img", { src, alt: "", loading: "lazy", class: className });
+  img.addEventListener("error", () => img.replaceWith(blank()), { once: true });
+  return img;
 }
 
 let toastTimer;
@@ -89,7 +122,7 @@ function renderAccount() {
       { class: "account-inner" },
       h("span", { class: "account-stat", title: "Tasks completed" }, `${t.completed} done`),
       h("span", { class: "account-stat", title: "Active tasks" }, `${t.active} active`),
-      h("img", { class: "avatar", src: me.avatar, alt: "" }),
+      iconImg(me.avatar, "avatar"),
       h("span", { class: "account-name" }, me.name),
       h("button", { class: "btn btn-ghost", onClick: signOut }, "Sign out"),
     ),
@@ -166,7 +199,7 @@ async function renderLanding() {
             h(
               "a",
               { class: "game-card", href: g.storeUrl, target: "_blank", rel: "noopener" },
-              h("img", { src: g.headerUrl, alt: "", loading: "lazy" }),
+              gameArt(g),
               h(
                 "div",
                 { class: "game-card-body" },
@@ -250,7 +283,7 @@ async function renderLibrary() {
           h(
             "a",
             { class: "game-card", href: `#/game/${g.appid}` },
-            h("img", { src: g.headerUrl, alt: "", loading: "lazy" }),
+            gameArt(g),
             active.has(g.appid) && h("span", { class: "flag" }, "Task active"),
             h(
               "div",
@@ -311,7 +344,14 @@ async function renderGame(appid) {
   const header = h(
     "div",
     { class: "game-head" },
-    h("img", { class: "game-head-art", src: `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg`, alt: "" }),
+    gameArt(
+      {
+        appid,
+        name: title,
+        headerUrl: `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg`,
+      },
+      "game-head-art",
+    ),
     h(
       "div",
       {},
@@ -371,7 +411,7 @@ function paintTask(appid, data, slot) {
         h(
           "div",
           { class: "task-main" },
-          task.icon && h("img", { class: "task-icon", src: task.icon, alt: "" }),
+          iconImg(task.icon, "task-icon"),
           h(
             "div",
             {},
@@ -463,7 +503,7 @@ function paintTask(appid, data, slot) {
                 h(
                   "li",
                   {},
-                  c.icon && h("img", { src: c.icon, alt: "" }),
+                  iconImg(c.icon),
                   h("span", {}, c.name),
                   tierBadge(c.tier, c.globalPercent),
                 ),
@@ -549,7 +589,7 @@ function achievementList(data) {
         h(
           "li",
           { class: a.unlocked ? "ach unlocked" : "ach" },
-          h("img", { src: (a.unlocked ? a.icon : a.iconGray) || a.icon, alt: "", loading: "lazy" }),
+          iconImg((a.unlocked ? a.icon : a.iconGray) || a.icon),
           h(
             "div",
             {},
