@@ -69,7 +69,7 @@ async function route(request, url, env, ctx) {
     return steam.profile(env, await requireUser(request, env));
   }
   if (path === "/api/me/games") {
-    return steam.ownedGames(env, await requireUser(request, env));
+    return steam.ownedGames(env, await requireUser(request, env), ctx);
   }
 
   const match = path.match(/^\/api\/games\/(\d{1,10})\/(achievements|roll)$/);

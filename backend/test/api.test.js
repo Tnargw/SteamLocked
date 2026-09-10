@@ -268,6 +268,54 @@ describe("GET /api/me/games", () => {
     expect(body.games[0].headerUrl).toContain("/steam/apps/730/header.jpg");
   });
 
+  it("serves the real cover art for titles the legacy CDN path gets wrong", async () => {
+    // Battlefield 6 returns a blank 1.4 KB placeholder on the legacy path, so
+    // the resolved hashed URL has to win.
+    stubSteam({
+      GetOwnedGames: ok({
+        response: {
+          game_count: 1,
+          games: [{ appid: 2807960, name: "Battlefield 6", playtime_forever: 60 }],
+        },
+      }),
+      "IStoreBrowseService/GetItems": ok({
+        response: {
+          store_items: [
+            {
+              id: 2807960,
+              success: 1,
+              assets: {
+                asset_url_format: "steam/apps/2807960/${FILENAME}?t=1787669881",
+                header: "c12d12ce/header.jpg",
+              },
+            },
+          ],
+        },
+      }),
+    });
+
+    const body = await (await call("/api/me/games", { headers: authed() })).json();
+    expect(body.games[0].headerUrl).toBe(
+      "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2807960/c12d12ce/header.jpg?t=1787669881",
+    );
+    expect(body.games[0].headerUrl).not.toContain("cdn.cloudflare.steamstatic.com");
+  });
+
+  it("falls back to the legacy art URL if the art lookup fails", async () => {
+    stubSteam({
+      GetOwnedGames: ok({
+        response: {
+          game_count: 1,
+          games: [{ appid: 424242, name: "Some Game", playtime_forever: 5 }],
+        },
+      }),
+      "IStoreBrowseService/GetItems": () => new Response("down", { status: 503 }),
+    });
+
+    const body = await (await call("/api/me/games", { headers: authed() })).json();
+    expect(body.games[0].headerUrl).toContain("/steam/apps/424242/header.jpg");
+  });
+
   it("reports a private library instead of erroring", async () => {
     stubSteam({ GetOwnedGames: ok({ response: {} }) });
     expect(await (await call("/api/me/games", { headers: authed() })).json()).toMatchObject({

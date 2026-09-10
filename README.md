@@ -78,5 +78,12 @@ Live API: <https://steamlocked.grant-watson.workers.dev>
 
 ## Notes
 
+- Cover art comes from `IStoreBrowseService/GetItems`, not the legacy
+  `steam/apps/<id>/header.jpg` path. That path is wrong for some newer titles:
+  a few 404, and some — Battlefield 6 among them — serve a blank 1.4 KB
+  placeholder that loads *successfully*, so the browser never fires an error and
+  the card just looks empty. GetItems is keyless and takes 200 ids per call, so
+  a whole library costs a handful of requests. Apps with no store art at all
+  resolve to `null` and the UI draws a generated tile from the game's initials.
 - A player's **Game details** privacy must be Public for their library to load.
 - Not affiliated with Valve. Game data from the Steam Web API.
