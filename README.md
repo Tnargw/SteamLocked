@@ -78,6 +78,12 @@ Live API: <https://steamlocked.grant-watson.workers.dev>
 
 ## Notes
 
+- Cloudflare counts every outbound `fetch` **and every Cache API call** as a
+  subrequest, capped per invocation (50 on the Free plan). Caching therefore
+  rides on `fetch`'s own `cf.cacheTtl` rather than `caches.default`: a
+  read-through cache costs a `match` plus a `put` per item, which a real library
+  blows through instantly. App ids are sorted before batching so a given library
+  always produces the same URLs, which is what lets the edge cache hit.
 - Cover art comes from `IStoreBrowseService/GetItems`, not the legacy
   `steam/apps/<id>/header.jpg` path. That path is wrong for some newer titles:
   a few 404, and some — Battlefield 6 among them — serve a blank 1.4 KB

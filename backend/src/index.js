@@ -23,8 +23,8 @@ import * as steam from "./steam.js";
 
 const DIFFICULTIES = new Set(["any", "easy", "medium", "hard", "insane"]);
 
-async function roll(env, steamid, appid, url, ctx) {
-  const data = await steam.achievements(env, steamid, appid, ctx);
+async function roll(env, steamid, appid, url) {
+  const data = await steam.achievements(env, steamid, appid);
   if (!data.available) throw new ApiError(409, data.reason);
 
   const locked = data.achievements.filter((a) => !a.unlocked);
@@ -69,7 +69,7 @@ async function route(request, url, env, ctx) {
     return steam.profile(env, await requireUser(request, env));
   }
   if (path === "/api/me/games") {
-    return steam.ownedGames(env, await requireUser(request, env), ctx);
+    return steam.ownedGames(env, await requireUser(request, env));
   }
 
   const match = path.match(/^\/api\/games\/(\d{1,10})\/(achievements|roll)$/);
@@ -78,8 +78,8 @@ async function route(request, url, env, ctx) {
     if (!isAppId(appid)) throw new ApiError(400, "Invalid app id");
     const steamid = await requireUser(request, env);
     return action === "achievements"
-      ? steam.achievements(env, steamid, appid, ctx)
-      : roll(env, steamid, appid, url, ctx);
+      ? steam.achievements(env, steamid, appid)
+      : roll(env, steamid, appid, url);
   }
 
   throw new ApiError(404, "Not found");

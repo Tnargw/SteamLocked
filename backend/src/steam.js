@@ -8,6 +8,11 @@ const CDN = "https://cdn.cloudflare.steamstatic.com";
 const STORE_ASSETS = "https://shared.akamai.steamstatic.com/store_item_assets/";
 // IStoreBrowseService accepts 200 ids per call; 400 is rejected outright.
 const ART_CHUNK = 100;
+// Ceiling on art lookups per request, so a huge library can't exhaust the
+// subrequest budget. At 100 ids per call this is 10 subrequests against a
+// Free-plan cap of 50, and covers all but the largest libraries outright.
+// Games past this keep the legacy URL, which is right for most of the catalogue.
+const ART_MAX_APPS = 1000;
 
 const TTL = {
   trending: 900, // 15 min — chart rollups move slowly
@@ -48,20 +53,14 @@ async function cached(ctx, key, ttl, produce) {
   return value;
 }
 
-const cacheKeyFor = (key) => new Request(`https://cache.steamlocked/${key}`);
-
-/** undefined = not cached. A cached null is a real "this app has no art". */
-async function cacheGet(key) {
-  const hit = await caches.default.match(cacheKeyFor(key));
-  return hit ? hit.json() : undefined;
-}
-
-function cacheSet(ctx, key, value, ttl) {
-  const stored = Response.json(value, {
-    headers: { "Cache-Control": `public, max-age=${ttl}` },
-  });
-  ctx.waitUntil(caches.default.put(cacheKeyFor(key), stored));
-}
+/**
+ * Cloudflare counts every fetch *and* every Cache API call as a subrequest, and
+ * caps them per invocation (50 on the Free plan). Read-through caching with
+ * caches.default costs a match plus a put per item, which a real Steam library
+ * blows through instantly. Letting fetch do its own edge caching costs exactly
+ * one subrequest whether it hits or misses.
+ */
+const cfCache = (ttl) => ({ cacheTtl: ttl, cacheEverything: true });
 
 const chunk = (items, size) =>
   Array.from({ length: Math.ceil(items.length / size) }, (_, i) =>
@@ -87,23 +86,20 @@ function assetHeaderUrl(item) {
  *
  * Returns { [appid]: url | null }; null means Steam has no store art at all.
  */
-export async function resolveArt(appids, ctx) {
-  const unique = [...new Set(appids.map(String))];
+export async function resolveArt(appids) {
+  // Sorted so a given library always produces the same chunk URLs, which is
+  // what lets the edge cache actually hit on the next request.
+  const unique = [...new Set(appids.map(Number))]
+    .filter((n) => Number.isFinite(n))
+    .sort((a, b) => a - b)
+    .slice(0, ART_MAX_APPS);
+
   const resolved = {};
-  const misses = [];
 
   await Promise.all(
-    unique.map(async (id) => {
-      const hit = await cacheGet(`art/${id}`);
-      if (hit === undefined) misses.push(id);
-      else resolved[id] = hit;
-    }),
-  );
-
-  await Promise.all(
-    chunk(misses, ART_CHUNK).map(async (ids) => {
+    chunk(unique, ART_CHUNK).map(async (ids) => {
       const payload = {
-        ids: ids.map((appid) => ({ appid: Number(appid) })),
+        ids: ids.map((appid) => ({ appid })),
         context: { language: "english", country_code: "US" },
         data_request: { include_assets: true },
       };
@@ -113,7 +109,7 @@ export async function resolveArt(appids, ctx) {
 
       let items;
       try {
-        const res = await fetch(url);
+        const res = await fetch(url, { cf: cfCache(TTL.art) });
         if (!res.ok) throw new Error(`GetItems responded ${res.status}`);
         items = (await res.json())?.response?.store_items ?? [];
       } catch {
@@ -127,15 +123,11 @@ export async function resolveArt(appids, ctx) {
         const id = String(item?.id ?? item?.appid ?? "");
         if (!id) continue;
         seen.add(id);
-        const art = assetHeaderUrl(item);
-        resolved[id] = art;
-        cacheSet(ctx, `art/${id}`, art, TTL.art);
+        resolved[id] = assetHeaderUrl(item);
       }
-      // Apps Steam didn't answer for have no store entry; remember that too.
+      // Anything Steam didn't answer for has no store entry at all.
       for (const id of ids) {
-        if (seen.has(id)) continue;
-        resolved[id] = null;
-        cacheSet(ctx, `art/${id}`, null, TTL.art);
+        if (!seen.has(String(id))) resolved[String(id)] = null;
       }
     }),
   );
@@ -143,14 +135,14 @@ export async function resolveArt(appids, ctx) {
   return resolved;
 }
 
-async function fetchJson(url, label) {
-  const res = await fetch(url);
+async function fetchJson(url, label, cacheTtl) {
+  const res = await fetch(url, cacheTtl ? { cf: cfCache(cacheTtl) } : undefined);
   if (!res.ok) throw new ApiError(502, `Steam ${label} responded ${res.status}`);
   return res.json();
 }
 
 /** Call a keyed Steam Web API method. */
-async function steamGet(env, path, params) {
+async function steamGet(env, path, params, cacheTtl) {
   if (!env.STEAM_API_KEY) {
     throw new ApiError(500, "STEAM_API_KEY is not configured on this Worker");
   }
@@ -159,7 +151,7 @@ async function steamGet(env, path, params) {
   url.searchParams.set("format", "json");
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
 
-  const res = await fetch(url);
+  const res = await fetch(url, cacheTtl ? { cf: cfCache(cacheTtl) } : undefined);
   if (res.status === 401 || res.status === 403) {
     throw new ApiError(502, "Steam rejected the request (bad API key, or the data is private)");
   }
@@ -169,41 +161,40 @@ async function steamGet(env, path, params) {
 
 // --- Public / keyless ---------------------------------------------------------
 
-export async function appDetails(appid, ctx) {
-  return cached(ctx, `appdetails/${appid}`, TTL.appDetails, async () => {
-    const fallback = {
+export async function appDetails(appid) {
+  const fallback = {
+    appid: Number(appid),
+    name: `App ${appid}`,
+    shortDescription: "",
+    isFree: false,
+    price: null,
+    releaseDate: null,
+  };
+  try {
+    const res = await fetch(
+      `${STEAM_STORE}/api/appdetails?appids=${appid}&filters=basic,price_overview,release_date`,
+      { cf: cfCache(TTL.appDetails) },
+    );
+    if (!res.ok) return fallback;
+    const d = (await res.json())?.[appid]?.data;
+    if (!d) return fallback;
+    return {
       appid: Number(appid),
-      name: `App ${appid}`,
-      shortDescription: "",
-      isFree: false,
-      price: null,
-      releaseDate: null,
+      name: d.name ?? fallback.name,
+      shortDescription: d.short_description ?? "",
+      isFree: Boolean(d.is_free),
+      price: d.price_overview
+        ? {
+            final: d.price_overview.final_formatted,
+            discountPercent: d.price_overview.discount_percent ?? 0,
+          }
+        : null,
+      releaseDate: d.release_date?.date ?? null,
     };
-    try {
-      const res = await fetch(
-        `${STEAM_STORE}/api/appdetails?appids=${appid}&filters=basic,price_overview,release_date`,
-      );
-      if (!res.ok) return fallback;
-      const d = (await res.json())?.[appid]?.data;
-      if (!d) return fallback;
-      return {
-        appid: Number(appid),
-        name: d.name ?? fallback.name,
-        shortDescription: d.short_description ?? "",
-        isFree: Boolean(d.is_free),
-        price: d.price_overview
-          ? {
-              final: d.price_overview.final_formatted,
-              discountPercent: d.price_overview.discount_percent ?? 0,
-            }
-          : null,
-        releaseDate: d.release_date?.date ?? null,
-      };
-    } catch {
-      // A missing store entry shouldn't sink the whole list.
-      return fallback;
-    }
-  });
+  } catch {
+    // A missing store entry shouldn't sink the whole list.
+    return fallback;
+  }
 }
 
 export async function trending(url, ctx) {
@@ -214,17 +205,15 @@ export async function trending(url, ctx) {
     const data = await fetchJson(
       `${STEAM_API}/ISteamChartsService/GetMostPlayedGames/v1/`,
       "most-played",
+      TTL.trending,
     );
     const ranks = (data?.response?.ranks ?? []).slice(0, limit);
 
-    const art = await resolveArt(
-      ranks.map((r) => r.appid),
-      ctx,
-    );
+    const art = await resolveArt(ranks.map((r) => r.appid));
 
     const games = await Promise.all(
       ranks.map(async (r) => {
-        const d = await appDetails(String(r.appid), ctx);
+        const d = await appDetails(String(r.appid));
         return {
           rank: r.rank,
           appid: r.appid,
@@ -245,22 +234,21 @@ export async function trending(url, ctx) {
   });
 }
 
-async function globalPercents(appid, ctx) {
-  return cached(ctx, `globalpct/${appid}`, TTL.globalPercents, async () => {
-    try {
-      const data = await fetchJson(
-        `${STEAM_API}/ISteamUserStats/GetGlobalAchievementPercentagesForApp/v2/?gameid=${appid}`,
-        "global percentages",
-      );
-      const out = {};
-      for (const a of data?.achievementpercentages?.achievements ?? []) {
-        out[a.name] = Number(a.percent);
-      }
-      return out;
-    } catch {
-      return {};
+async function globalPercents(appid) {
+  try {
+    const data = await fetchJson(
+      `${STEAM_API}/ISteamUserStats/GetGlobalAchievementPercentagesForApp/v2/?gameid=${appid}`,
+      "global percentages",
+      TTL.globalPercents,
+    );
+    const out = {};
+    for (const a of data?.achievementpercentages?.achievements ?? []) {
+      out[a.name] = Number(a.percent);
     }
-  });
+    return out;
+  } catch {
+    return {};
+  }
 }
 
 // --- Keyed --------------------------------------------------------------------
@@ -278,7 +266,7 @@ export async function profile(env, steamid) {
   };
 }
 
-export async function ownedGames(env, steamid, ctx) {
+export async function ownedGames(env, steamid) {
   const data = await steamGet(env, "/IPlayerService/GetOwnedGames/v1/", {
     steamid,
     include_appinfo: "1",
@@ -289,54 +277,57 @@ export async function ownedGames(env, steamid, ctx) {
   // Steam returns an empty object when "Game details" privacy is not public.
   if (response.games === undefined) return { private: true, count: 0, games: [] };
 
-  const art = await resolveArt(
-    response.games.map((g) => g.appid),
-    ctx,
-  );
-
   const games = response.games.map((g) => ({
     appid: g.appid,
     name: g.name,
     playtimeMinutes: g.playtime_forever ?? 0,
     lastPlayed: g.rtime_last_played ?? 0,
-    // null means Steam has no art; the UI draws a generated tile instead.
-    headerUrl: art[String(g.appid)] ?? headerUrl(g.appid),
+    headerUrl: headerUrl(g.appid),
     hasCommunityStats: Boolean(g.has_community_visible_stats),
   }));
   games.sort((a, b) => b.playtimeMinutes - a.playtimeMinutes || a.name.localeCompare(b.name));
 
+  // Sorted first so the art budget goes to the games actually shown.
+  const art = await resolveArt(games.map((g) => g.appid));
+  for (const game of games) {
+    const resolved = art[String(game.appid)];
+    // A resolved null means Steam has no art at all — leave the legacy URL,
+    // which 404s, so the UI draws its generated tile.
+    if (resolved) game.headerUrl = resolved;
+  }
+
   return { private: false, count: response.game_count ?? games.length, games };
 }
 
-async function schema(env, appid, ctx) {
-  return cached(ctx, `schema/${appid}`, TTL.schema, async () => {
-    try {
-      const data = await steamGet(env, "/ISteamUserStats/GetSchemaForGame/v2/", {
-        appid,
-        l: "english",
-      });
-      const out = {};
-      for (const a of data?.game?.availableGameStats?.achievements ?? []) {
-        out[a.name] = {
-          displayName: a.displayName || a.name,
-          description: a.description || "",
-          icon: a.icon || null,
-          iconGray: a.icongray || null,
-          hidden: a.hidden === 1,
-        };
-      }
-      return out;
-    } catch {
-      return {};
+async function schema(env, appid) {
+  try {
+    const data = await steamGet(
+      env,
+      "/ISteamUserStats/GetSchemaForGame/v2/",
+      { appid, l: "english" },
+      TTL.schema,
+    );
+    const out = {};
+    for (const a of data?.game?.availableGameStats?.achievements ?? []) {
+      out[a.name] = {
+        displayName: a.displayName || a.name,
+        description: a.description || "",
+        icon: a.icon || null,
+        iconGray: a.icongray || null,
+        hidden: a.hidden === 1,
+      };
     }
-  });
+    return out;
+  } catch {
+    return {};
+  }
 }
 
 /**
  * Every achievement for a game, merged from three sources: the player's
  * unlock state, the game's schema (names/icons), and global rarity.
  */
-export async function achievements(env, steamid, appid, ctx) {
+export async function achievements(env, steamid, appid) {
   let playerStats;
   try {
     const data = await steamGet(env, "/ISteamUserStats/GetPlayerAchievements/v1/", {
@@ -361,10 +352,7 @@ export async function achievements(env, steamid, appid, ctx) {
     };
   }
 
-  const [meta, percents] = await Promise.all([
-    schema(env, appid, ctx),
-    globalPercents(appid, ctx),
-  ]);
+  const [meta, percents] = await Promise.all([schema(env, appid), globalPercents(appid)]);
 
   const list = playerStats.achievements.map((a) => {
     const m = meta[a.apiname] ?? {};

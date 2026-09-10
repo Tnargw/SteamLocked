@@ -35,9 +35,7 @@ function stubGetItems(handler) {
 
 async function run(appids, handler) {
   const spy = stubGetItems(handler);
-  const ctx = createExecutionContext();
-  const result = await resolveArt(appids, ctx);
-  await waitOnExecutionContext(ctx);
+  const result = await resolveArt(appids);
   return { result, spy };
 }
 
@@ -67,18 +65,13 @@ describe("resolveArt — real cover art for apps the legacy path gets wrong", ()
 
   it("leaves ids unresolved when the lookup fails, rather than throwing", async () => {
     vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("network down"));
-    const ctx = createExecutionContext();
-    const result = await resolveArt([100005], ctx);
-    await waitOnExecutionContext(ctx);
     // Unresolved, not null — callers fall back to the legacy URL.
-    expect(result["100005"]).toBeUndefined();
+    await expect(resolveArt([100005])).resolves.toEqual({});
   });
 
   it("survives a non-200 from Steam", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("nope", { status: 503 }));
-    const ctx = createExecutionContext();
-    await expect(resolveArt([100006], ctx)).resolves.toBeTruthy();
-    await waitOnExecutionContext(ctx);
+    await expect(resolveArt([100006])).resolves.toBeTruthy();
   });
 });
 
@@ -111,29 +104,43 @@ describe("resolveArt — batching", () => {
   });
 });
 
-describe("resolveArt — caching", () => {
-  it("does not re-ask Steam for an app it already resolved", async () => {
-    await run([500001], (ids) => ids.map((id) => withArt(id)));
-    const { spy, result } = await run([500001], (ids) => ids.map((id) => withArt(id)));
-
-    expect(spy).not.toHaveBeenCalled();
-    expect(result["500001"]).toContain("/header.jpg");
+describe("resolveArt — subrequest budget", () => {
+  it("asks the edge to cache the lookup, instead of using the Cache API", async () => {
+    // Cache API calls each count against the per-invocation subrequest limit;
+    // fetch's own cf caching costs one subrequest whether it hits or misses.
+    const { spy } = await run([600001], (ids) => ids.map((id) => withArt(id)));
+    const [, init] = spy.mock.calls[0];
+    expect(init?.cf?.cacheTtl).toBeGreaterThan(0);
+    expect(init?.cf?.cacheEverything).toBe(true);
   });
 
-  it("remembers that an app has no art, so it isn't looked up repeatedly", async () => {
-    await run([500002], (ids) => ids.map(withoutArt));
-    const { spy, result } = await run([500002], (ids) => ids.map(withoutArt));
-
-    expect(spy).not.toHaveBeenCalled();
-    expect(result["500002"]).toBeNull();
+  it("makes no Cache API calls at all", async () => {
+    const match = vi.spyOn(caches.default, "match");
+    const put = vi.spyOn(caches.default, "put");
+    await run([600002], (ids) => ids.map((id) => withArt(id)));
+    expect(match).not.toHaveBeenCalled();
+    expect(put).not.toHaveBeenCalled();
   });
 
-  it("only fetches the ids it hasn't seen before", async () => {
-    await run([500003], (ids) => ids.map((id) => withArt(id)));
-    const { spy } = await run([500003, 500004], (ids) => ids.map((id) => withArt(id)));
+  it("sorts ids so the same library always produces the same cache key", async () => {
+    const { spy: a } = await run([600005, 600003, 600004], (ids) => ids.map((id) => withArt(id)));
+    const urlA = String(a.mock.calls[0][0]);
+    vi.restoreAllMocks();
+    const { spy: b } = await run([600004, 600005, 600003], (ids) => ids.map((id) => withArt(id)));
+    expect(String(b.mock.calls[0][0])).toBe(urlA);
+  });
 
-    const url = String(spy.mock.calls[0][0]);
-    const payload = JSON.parse(decodeURIComponent(url.split("input_json=")[1]));
-    expect(payload.ids.map((i) => i.appid)).toEqual([500004]);
+  it("caps lookups so a huge library cannot exhaust the budget", async () => {
+    const ids = Array.from({ length: 5000 }, (_, i) => 700000 + i);
+    const { spy } = await run(ids, (batch) => batch.map((id) => withArt(id)));
+    // 5000 games must not mean 50 requests — the cap holds it to 10 chunks,
+    // comfortably inside the Free plan's 50-subrequest invocation limit.
+    expect(spy.mock.calls.length).toBeLessThanOrEqual(10);
+  });
+
+  it("resolves art for the ids it was given first, since callers sort by relevance", async () => {
+    const ids = Array.from({ length: 400 }, (_, i) => 800000 + i);
+    const { result } = await run(ids, (batch) => batch.map((id) => withArt(id)));
+    expect(result["800000"]).toContain("/header.jpg");
   });
 });
