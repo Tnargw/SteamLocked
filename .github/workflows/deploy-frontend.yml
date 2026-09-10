@@ -6,6 +6,7 @@ on:
     paths:
       - "frontend/**"
       - ".github/workflows/deploy-frontend.yml"
+      - ".github/workflows/test.yml"
   workflow_dispatch:
 
 permissions:
@@ -18,7 +19,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Nothing reaches Pages unless the suite is green.
+  test:
+    uses: ./.github/workflows/test.yml
+
   deploy:
+    needs: test
     runs-on: ubuntu-latest
     environment:
       name: github-pages
@@ -28,9 +34,17 @@ jobs:
 
       - uses: actions/configure-pages@v5
 
+      # Publish only the shipped site — never tooling, tests or node_modules.
+      - name: Stage site
+        run: |
+          mkdir -p _site
+          cp -r frontend/. _site/
+          rm -rf _site/node_modules _site/test _site/package.json \
+                 _site/package-lock.json _site/vitest.config.mjs
+
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: frontend
+          path: _site
 
       - id: deployment
         uses: actions/deploy-pages@v4
