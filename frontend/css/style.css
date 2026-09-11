@@ -120,8 +120,10 @@ p { margin: 0 0 .75rem; }
 
 main { flex: 1; }
 /* <main> also carries .wrap, whose `padding` shorthand zeroes the block sides.
-   Matching that specificity is what makes this apply at all. */
-main.wrap { padding-block: 2.75rem 5.5rem; }
+   Matching that specificity is what makes this apply at all.
+   This is the single source of the gap under the header, so every view — the
+   landing hero, the library, a game page — starts at the same height. */
+main.wrap { padding-block: 5rem 5.5rem; }
 
 .panel {
   background: var(--panel);
@@ -150,7 +152,7 @@ main.wrap { padding-block: 2.75rem 5.5rem; }
 
 /* --- hero / steps ---------------------------------------------------------- */
 
-.hero { padding: 2.5rem 0 1rem; max-width: 640px; }
+.hero { padding: 0 0 1rem; max-width: 640px; }
 .hero h1 { font-size: 2.4rem; }
 .lede { font-size: 1.05rem; color: var(--ink-dim); margin-bottom: 1.5rem; }
 
