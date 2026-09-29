@@ -382,7 +382,7 @@ async function renderLibrary() {
   );
 
   for (const { value, number } of stats) {
-    countUp(number, value, { duration: 1300, format: (n) => n.toLocaleString() });
+    countUp(number, value, { format: (n) => n.toLocaleString() });
   }
 }
 
@@ -814,7 +814,7 @@ async function doRoll(appid, difficulty, button, slot, data, actions) {
   }
 }
 
-const CHECK_LABEL = "I've done it — check Steam";
+const CHECK_LABEL = "Did I get it?";
 
 async function verify(appid, button, slot) {
   button.disabled = true;

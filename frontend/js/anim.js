@@ -66,10 +66,21 @@ export async function spinReel(render, names, { result, minMs = 2000, intervals 
 }
 
 /**
+ * How long a count-up should run for, scaled to how far it has to travel.
+ *
+ * A fixed duration makes small numbers look broken: counting 0 to 3 over more
+ * than a second shows four values and reads as a number being slow to appear,
+ * rather than as a tick. Short journeys land quickly; long ones earn the full
+ * run, capped so a huge library does not crawl.
+ */
+export const countDuration = (delta, { base = 400, perUnit = 15, max = 1300 } = {}) =>
+  Math.min(max, base + Math.abs(delta) * perUnit);
+
+/**
  * Tick a number up to its final value. Resolves when it lands, and always
  * leaves the exact target on screen rather than a rounding artefact.
  */
-export function countUp(el, to, { duration = 700, from = 0, format } = {}) {
+export function countUp(el, to, { from = 0, duration = countDuration(to - from), format } = {}) {
   const show = (n) => {
     el.textContent = format ? format(n) : String(n);
   };

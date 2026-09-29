@@ -109,7 +109,10 @@ be unit tested:
   locked pool, decelerating (cubic easing on the frame gap) and landing on the
   winner. Runs for at least 2s even on a fast reply, or the whole thing
   flickers and reads as broken. A rejected roll stops the reel immediately.
-- **Stat count-up** — the library totals tick from zero.
+- **Stat count-up** — the library totals tick from zero, over a duration
+  scaled to the distance travelled (`countDuration`). A fixed duration makes
+  small numbers look broken: counting 0 to 3 over a second shows four values
+  and reads as a number being slow to appear rather than as a tick.
 - **Padlock snap** — the shackle drops into the lock and the task card jolts,
   but only on the roll that created the task, never on a revisit.
 - **Discard on skip** — the card desaturates the moment you press, then tumbles

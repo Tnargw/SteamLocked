@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { countUp, playClass, prefersReducedMotion, reelIntervals, spinReel } from "../js/anim.js";
+import {
+  countDuration,
+  countUp,
+  playClass,
+  prefersReducedMotion,
+  reelIntervals,
+  spinReel,
+} from "../js/anim.js";
 
 /** Pretend the viewer has asked for reduced motion. */
 function reduceMotion(reduce) {
@@ -139,8 +146,45 @@ describe("spinReel", () => {
   });
 });
 
+describe("countDuration", () => {
+  it("keeps tiny counts short, so they read as a tick not a stall", () => {
+    // Counting 0..3 over a second shows four values and looks broken.
+    expect(countDuration(3)).toBeLessThan(500);
+  });
+
+  it("gives longer journeys more time", () => {
+    expect(countDuration(60)).toBeGreaterThan(countDuration(5));
+  });
+
+  it("caps, so a huge library does not crawl", () => {
+    expect(countDuration(400)).toBe(countDuration(40000));
+    expect(countDuration(400)).toBeLessThanOrEqual(1300);
+  });
+
+  it("grows monotonically", () => {
+    const steps = [0, 1, 5, 20, 50, 100].map(countDuration);
+    for (let i = 1; i < steps.length; i++) {
+      expect(steps[i]).toBeGreaterThanOrEqual(steps[i - 1]);
+    }
+  });
+
+  it("treats a downward count the same as an upward one", () => {
+    expect(countDuration(-30)).toBe(countDuration(30));
+  });
+});
+
 describe("countUp", () => {
   const el = () => document.createElement("span");
+
+  it("scales its own duration when none is given", async () => {
+    reduceMotion(false);
+    const small = el();
+    const startedAt = performance.now();
+    await countUp(small, 2);
+    // Two steps should not take anywhere near the full cap.
+    expect(performance.now() - startedAt).toBeLessThan(900);
+    expect(small.textContent).toBe("2");
+  });
 
   it("lands on exactly the target value", async () => {
     reduceMotion(false);
