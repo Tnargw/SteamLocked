@@ -407,3 +407,118 @@ main.wrap { padding-block: 5rem 5.5rem; }
   .nav { margin-left: .25rem; }
   .nav-link { padding: .3rem .4rem; font-size: .8rem; }
 }
+
+/* ===========================================================================
+   Animation
+   Transform/opacity only, so everything stays on the compositor. Every effect
+   is switched off wholesale at the bottom under prefers-reduced-motion.
+   =========================================================================== */
+
+/* --- the roll: a decelerating reel of candidate achievements --------------- */
+
+.reel {
+  display: flex;
+  align-items: center;
+  gap: .7rem;
+  min-height: 48px;
+  padding: .5rem .85rem;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--bg-2);
+  overflow: hidden;
+}
+.reel-label {
+  font-size: .7rem; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--accent); font-weight: 700; flex: none;
+}
+.reel-name {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Each swap nudges the name upward, so the reel reads as spinning. */
+.reel-spinning .reel-name { animation: reel-tick 90ms ease-out; }
+@keyframes reel-tick {
+  from { transform: translateY(55%); opacity: .25; }
+  to   { transform: translateY(0);   opacity: 1; }
+}
+
+.reel-landed { animation: reel-land 380ms cubic-bezier(.2, 1.5, .4, 1); }
+.reel-landed .reel-name { color: var(--accent); }
+@keyframes reel-land {
+  0%   { transform: scale(1); }
+  35%  { transform: scale(1.045); }
+  100% { transform: scale(1); }
+}
+
+/* --- the padlock snapping shut when a task locks in ----------------------- */
+
+.lock-badge { width: 18px; height: 18px; flex: none; color: var(--accent); }
+.lock-badge .shackle { fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; }
+.lock-badge .body { fill: currentColor; }
+
+.task-label { display: flex; align-items: center; gap: .45rem; }
+
+/* Shackle drops into the body and overshoots slightly — a physical click. */
+.lock-snap .shackle { animation: shackle-drop 460ms cubic-bezier(.3, 1.7, .5, 1); }
+@keyframes shackle-drop {
+  0%   { transform: translateY(-5px) rotate(-12deg); }
+  55%  { transform: translateY(1.5px) rotate(0deg); }
+  100% { transform: translateY(0) rotate(0deg); }
+}
+.lock-snap .body { animation: body-squash 460ms cubic-bezier(.3, 1.6, .5, 1); }
+@keyframes body-squash {
+  0%, 45% { transform: scaleY(1); }
+  62%     { transform: scaleY(.9); }
+  100%    { transform: scaleY(1); }
+}
+
+/* The card itself jolts, as though something just clamped down on it. */
+.task-locking { animation: lock-jolt 420ms ease-out; }
+@keyframes lock-jolt {
+  0%   { transform: translateY(-3px) scale(1.006); }
+  40%  { transform: translateY(1px)  scale(.998); }
+  70%  { transform: translateY(-1px); }
+  100% { transform: translateY(0) scale(1); }
+}
+
+/* --- skipping: a task discarded, and it should look like it cost you ------ */
+
+.task-discarding {
+  animation: discard 420ms cubic-bezier(.4, 0, .8, .5) forwards;
+  pointer-events: none;
+}
+@keyframes discard {
+  0%   { transform: translateY(0) rotate(0) scale(1); opacity: 1; filter: saturate(1); }
+  30%  { transform: translateY(-4px) rotate(-.6deg) scale(.995); filter: saturate(.35); }
+  100% { transform: translateY(26px) rotate(2.2deg) scale(.93); opacity: 0; filter: saturate(0); }
+}
+
+/* Pressed but not yet confirmed: drain the colour so it reads as going away. */
+.task-leaving { filter: saturate(.4); opacity: .75; transition: filter .18s ease, opacity .18s ease; }
+
+/* The skip tally flinches when it goes up. */
+.skip-bumped { animation: skip-bump 520ms ease-out; display: inline-block; }
+@keyframes skip-bump {
+  0%   { transform: scale(1);    color: inherit; }
+  25%  { transform: scale(1.35); color: var(--danger); }
+  100% { transform: scale(1);    color: inherit; }
+}
+
+/* --- reduced motion: keep the information, drop the movement -------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .reel-spinning .reel-name,
+  .reel-landed,
+  .lock-snap .shackle,
+  .lock-snap .body,
+  .task-locking,
+  .task-discarding,
+  .skip-bumped {
+    animation: none !important;
+  }
+  .task-leaving { transition: none; }
+  /* Still needs to disappear — just without the theatrics. */
+  .task-discarding { opacity: 0; }
+}

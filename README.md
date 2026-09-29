@@ -99,6 +99,35 @@ Display names and avatars are cached in the `players` table, refreshed whenever
 a player loads their profile, so rendering a 50-row board is one query rather
 than 50 calls to `GetPlayerSummaries`.
 
+## Animation
+
+Four effects, all in `frontend/js/anim.js` plus a block at the end of
+`style.css`. Timing logic lives in the module rather than the views so it can
+be unit tested:
+
+- **Roll reel** — cycles the *actual* candidate achievement names from the
+  locked pool, decelerating (cubic easing on the frame gap) and landing on the
+  winner. Runs for at least 1s even on a fast reply, or the whole thing
+  flickers and reads as broken. A rejected roll stops the reel immediately.
+- **Stat count-up** — the library totals tick from zero.
+- **Padlock snap** — the shackle drops into the lock and the task card jolts,
+  but only on the roll that created the task, never on a revisit.
+- **Discard on skip** — the card desaturates the moment you press, then tumbles
+  away once the *server* confirms, and the skip tally flinches red.
+
+Two rules the code holds to:
+
+- **`prefers-reduced-motion` disables all of it.** The information is never
+  carried by the motion: under reduced motion the reel is skipped entirely, the
+  numbers appear at their final value, and the roll still completes normally.
+- **Compositor-only properties** — `transform` and `opacity`, so none of it
+  triggers layout.
+
+`countUp` also guards against starved animation frames: a hidden tab fires no
+`requestAnimationFrame` callbacks, which would otherwise leave a stale number
+on screen, so it shows the true value immediately and keeps a timeout as a
+backstop.
+
 ## Local development
 
 ```bash

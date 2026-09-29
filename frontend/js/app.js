@@ -3,6 +3,7 @@
 import * as api from "./api.js";
 import * as store from "./store.js";
 import { hueFor, initials } from "./art.js";
+import { countUp, playClass, spinReel } from "./anim.js";
 
 const view = document.getElementById("view");
 const accountEl = document.getElementById("account");
@@ -61,6 +62,30 @@ function iconImg(src, className) {
   const img = h("img", { src, alt: "", loading: "lazy", class: className });
   img.addEventListener("error", () => img.replaceWith(blank()), { once: true });
   return img;
+}
+
+/** Padlock icon. Adding `lock-snap` to an ancestor plays it shutting. */
+function lockBadge() {
+  const ns = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(ns, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("class", "lock-badge");
+  svg.setAttribute("aria-hidden", "true");
+
+  const shackle = document.createElementNS(ns, "path");
+  shackle.setAttribute("class", "shackle");
+  shackle.setAttribute("d", "M8.2 10.5V7.2a3.8 3.8 0 0 1 7.6 0v3.3");
+
+  const body = document.createElementNS(ns, "rect");
+  body.setAttribute("class", "body");
+  body.setAttribute("x", "5");
+  body.setAttribute("y", "10.2");
+  body.setAttribute("width", "14");
+  body.setAttribute("height", "9.6");
+  body.setAttribute("rx", "2.2");
+
+  svg.append(shackle, body);
+  return svg;
 }
 
 let toastTimer;
@@ -338,18 +363,27 @@ async function renderLibrary() {
 
   paint();
 
+  // Rendered at 0 and counted up once attached, so the numbers land rather
+  // than just appearing.
+  const stats = [
+    [t.completed, "tasks completed"],
+    [t.active, "active tasks"],
+    [t.skipped, "skipped"],
+    [data.count, "games owned"],
+  ].map(([value, label]) => {
+    const number = h("strong", {}, "0");
+    return { value, node: h("div", { class: "stat" }, number, h("span", {}, label)), number };
+  });
+
   view.replaceChildren(
-    h(
-      "div",
-      { class: "stat-strip" },
-      h("div", { class: "stat" }, h("strong", {}, t.completed), h("span", {}, "tasks completed")),
-      h("div", { class: "stat" }, h("strong", {}, t.active), h("span", {}, "active tasks")),
-      h("div", { class: "stat" }, h("strong", {}, t.skipped), h("span", {}, "skipped")),
-      h("div", { class: "stat" }, h("strong", {}, data.count), h("span", {}, "games owned")),
-    ),
+    h("div", { class: "stat-strip" }, ...stats.map((s) => s.node)),
     h("div", { class: "section-head" }, h("h2", {}, "Your library"), search),
     grid,
   );
+
+  for (const { value, number } of stats) {
+    countUp(number, value, { duration: 650, format: (n) => n.toLocaleString() });
+  }
 }
 
 // --- leaderboard -------------------------------------------------------------
@@ -575,7 +609,7 @@ async function renderGame(appid) {
 }
 
 /** The roll / active-task / completed panel for one game. */
-async function paintTask(appid, data, slot) {
+async function paintTask(appid, data, slot, { justRolled = false, justSkipped = false } = {}) {
   const saved = store.getGame(appid);
   const byKey = new Map(data.achievements.map((a) => [a.key, a]));
 
@@ -605,7 +639,7 @@ async function paintTask(appid, data, slot) {
       h(
         "section",
         { class: "panel task-card" },
-        h("div", { class: "task-label" }, "Current task"),
+        h("div", { class: "task-label" }, lockBadge(), "Current task"),
         h(
           "div",
           { class: "task-main" },
@@ -648,6 +682,19 @@ async function paintTask(appid, data, slot) {
       h("option", { value: "insane" }, "Insane — under 5%"),
     );
 
+    const actions = h("div", { class: "roll-actions" });
+    actions.append(
+      select,
+      h(
+        "button",
+        {
+          class: "btn btn-primary btn-lg",
+          onClick: (e) => doRoll(appid, select.value, e.currentTarget, slot, data, actions),
+        },
+        "Roll a task",
+      ),
+    );
+
     slot.append(
       h(
         "section",
@@ -664,22 +711,19 @@ async function paintTask(appid, data, slot) {
               {},
               h("h2", {}, "No active task"),
               h("p", { class: "muted" }, `${locked} achievements still locked.`),
-              h(
-                "div",
-                { class: "roll-actions" },
-                select,
-                h(
-                  "button",
-                  {
-                    class: "btn btn-primary btn-lg",
-                    onClick: (e) => doRoll(appid, select.value, e.currentTarget, slot),
-                  },
-                  "Roll a task",
-                ),
-              ),
+              actions,
             ),
       ),
     );
+  }
+
+  if (justRolled) {
+    const card = slot.querySelector(".task-card");
+    if (card) {
+      playClass(card, "task-locking");
+      const label = card.querySelector(".task-label");
+      if (label) playClass(label, "lock-snap");
+    }
   }
 
   if (saved.completed.length || saved.skipped) {
@@ -691,7 +735,15 @@ async function paintTask(appid, data, slot) {
           "h3",
           {},
           `Completed here: ${saved.completed.length}`,
-          saved.skipped ? h("span", { class: "muted small" }, ` · ${saved.skipped} skipped`) : null,
+          saved.skipped
+            ? h(
+                "span",
+                { class: "muted small" },
+                " · ",
+                h("span", { class: justSkipped ? "skip-count skip-bumped" : "skip-count" }, saved.skipped),
+                " skipped",
+              )
+            : null,
         ),
         saved.completed.length
           ? h(
@@ -713,16 +765,50 @@ async function paintTask(appid, data, slot) {
   }
 }
 
-async function doRoll(appid, difficulty, button, slot) {
+/** Names the roll could plausibly land on, for the reel to cycle through. */
+function rollCandidates(data, difficulty) {
+  const locked = data.achievements.filter((a) => !a.unlocked);
+  const pool = difficulty === "any" ? locked : locked.filter((a) => a.tier === difficulty);
+  return (pool.length ? pool : locked).map((a) => a.name);
+}
+
+async function doRoll(appid, difficulty, button, slot, data, actions) {
   button.disabled = true;
-  button.textContent = "Rolling…";
+
+  // Swap the controls for a reel that spins real candidate names, so the
+  // suspense is over the actual pool rather than invented.
+  const nameEl = h("span", { class: "reel-name" }, "…");
+  const reel = h(
+    "div",
+    { class: "reel reel-spinning", "aria-hidden": "true" },
+    h("span", { class: "reel-label" }, "Rolling"),
+    nameEl,
+  );
+  actions.replaceWith(reel);
+
+  // Re-tick the animation by swapping the node on every frame.
+  const render = (name) => {
+    const fresh = h("span", { class: "reel-name" }, name);
+    reel.lastElementChild.replaceWith(fresh);
+  };
+
   try {
-    const result = await store.roll(appid, { difficulty });
+    const result = await spinReel(render, rollCandidates(data, difficulty), {
+      result: store.roll(appid, { difficulty }),
+      minMs: 1000,
+    });
+
+    reel.classList.remove("reel-spinning");
+    render(result.task.name);
+    await playClass(reel, "reel-landed", { timeout: 500 });
+
     renderAccount();
     toast(`Rolled: ${result.task.name}`, "success");
-    await paintTask(appid, await api.getAchievements(appid), slot);
+    await paintTask(appid, await api.getAchievements(appid), slot, { justRolled: true });
   } catch (err) {
     toast(err.message, "error");
+    // Put the controls back exactly as they were.
+    reel.replaceWith(actions);
     button.disabled = false;
     button.textContent = "Roll a task";
   }
@@ -751,11 +837,26 @@ async function verify(appid, button, slot) {
 }
 
 async function skip(appid, slot) {
+  const card = slot.querySelector(".task-card");
+  // Drain the colour straight away so the click feels acknowledged, but don't
+  // throw the card away until the server has actually accepted the skip.
+  card?.classList.add("task-leaving");
+
+  let result;
   try {
-    const result = await store.skip(appid);
-    renderAccount();
-    toast(result.skipped ? `Skipped: ${result.skipped.name}` : "Task skipped.");
-    await paintTask(appid, await api.getAchievements(appid), slot);
+    result = await store.skip(appid);
+  } catch (err) {
+    card?.classList.remove("task-leaving");
+    toast(err.message, "error");
+    return;
+  }
+
+  await playClass(card, "task-discarding", { timeout: 600 });
+
+  renderAccount();
+  toast(result.skipped ? `Skipped: ${result.skipped.name}` : "Task skipped.");
+  try {
+    await paintTask(appid, await api.getAchievements(appid), slot, { justSkipped: true });
   } catch (err) {
     toast(err.message, "error");
   }
