@@ -37,9 +37,11 @@ function h(tag, props = {}, ...children) {
  * Tools, soundtracks, betas and delisted titles stay in a library but 404 on
  * every CDN path, so a bare <img> would show a broken-image icon instead.
  */
-function gameArt(game, className) {
+function gameArt(game, className, { eager = false } = {}) {
   const frame = h("div", { class: ["art", className].filter(Boolean).join(" ") });
-  const img = h("img", { src: game.headerUrl, alt: "", loading: "lazy" });
+  // Grid cards are lazy; a page's own hero image is not — deferring the main
+  // above-the-fold image just delays the thing the viewer came to see.
+  const img = h("img", { src: game.headerUrl, alt: "", loading: eager ? "eager" : "lazy" });
   img.addEventListener("error", () => frame.replaceChildren(artFallback(game)), { once: true });
   frame.append(img);
   return frame;
@@ -562,6 +564,17 @@ async function renderGame(appid) {
     return;
   }
 
+  // Cover art has to come from the library, where the backend has already
+  // resolved the real URL. Rebuilding the legacy CDN path here 404s for titles
+  // like How to Fish, which is exactly what resolveArt exists to avoid. On a
+  // deep link the library may not be loaded yet, so fetch it.
+  if (!gamesCache) {
+    try {
+      gamesCache = await api.getMyGames();
+    } catch {
+      // Not fatal — the art just falls back to a generated tile.
+    }
+  }
   const game = gamesCache?.games?.find((g) => g.appid === Number(appid));
   const title = data.game || game?.name || `App ${appid}`;
 
@@ -572,9 +585,11 @@ async function renderGame(appid) {
       {
         appid,
         name: title,
-        headerUrl: `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg`,
+        headerUrl:
+          game?.headerUrl ?? `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg`,
       },
       "game-head-art",
+      { eager: true },
     ),
     h(
       "div",

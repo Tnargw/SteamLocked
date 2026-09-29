@@ -73,7 +73,7 @@ export async function spinReel(render, names, { result, minMs = 2000, intervals 
  * rather than as a tick. Short journeys land quickly; long ones earn the full
  * run, capped so a huge library does not crawl.
  */
-export const countDuration = (delta, { base = 400, perUnit = 15, max = 1300 } = {}) =>
+export const countDuration = (delta, { base = 800, perUnit = 30, max = 2600 } = {}) =>
   Math.min(max, base + Math.abs(delta) * perUnit);
 
 /**

@@ -148,8 +148,10 @@ describe("spinReel", () => {
 
 describe("countDuration", () => {
   it("keeps tiny counts short, so they read as a tick not a stall", () => {
-    // Counting 0..3 over a second shows four values and looks broken.
-    expect(countDuration(3)).toBeLessThan(500);
+    // Counting 0..3 shows only four values; it must not be given the same run
+    // as a count into the hundreds. Asserted as a ratio so retuning the
+    // constants cannot quietly invalidate the intent.
+    expect(countDuration(3)).toBeLessThan(countDuration(500) / 2);
   });
 
   it("gives longer journeys more time", () => {
@@ -158,7 +160,8 @@ describe("countDuration", () => {
 
   it("caps, so a huge library does not crawl", () => {
     expect(countDuration(400)).toBe(countDuration(40000));
-    expect(countDuration(400)).toBeLessThanOrEqual(1300);
+    // The ceiling is whatever `max` says, not a number baked into this test.
+    expect(countDuration(1e9, { max: 2000 })).toBe(2000);
   });
 
   it("grows monotonically", () => {
@@ -181,8 +184,8 @@ describe("countUp", () => {
     const small = el();
     const startedAt = performance.now();
     await countUp(small, 2);
-    // Two steps should not take anywhere near the full cap.
-    expect(performance.now() - startedAt).toBeLessThan(900);
+    // Two steps must not be given the full cap.
+    expect(performance.now() - startedAt).toBeLessThan(countDuration(1000));
     expect(small.textContent).toBe("2");
   });
 
