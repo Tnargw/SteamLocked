@@ -1,93 +1,54 @@
 /**
- * Per-player task state, kept in localStorage.
+ * Task state, owned by the server.
  *
- * Taskman rules: one active task per game. It stays locked in until Steam says
- * the achievement is unlocked, or until the player deliberately skips it —
- * skips are counted, so they cost something.
+ * This used to be localStorage, which meant progress was stranded on whichever
+ * device made it. The server is now the single source of truth — this module
+ * just holds the last known copy so the UI can render synchronously, and
+ * refreshes it from whatever each mutation returns.
+ *
+ * Taskman rules are enforced server-side: one active task per game, and a task
+ * is only ever banked when Steam itself reports the achievement unlocked.
  */
 
-const KEY = "steamlocked.state.v1";
+import * as api from "./api.js";
 
-const emptyState = () => ({ version: 1, steamid: null, games: {} });
 const emptyGame = () => ({ active: null, completed: [], skipped: 0 });
+const emptyState = () => ({ games: {}, totals: { completed: 0, skipped: 0, active: 0 } });
 
 let state = emptyState();
 
-function persist() {
-  try {
-    localStorage.setItem(KEY, JSON.stringify(state));
-  } catch {
-    /* private mode — state stays in memory for this session only */
-  }
-}
-
-/** Load state for a player, resetting if a different account signs in. */
-export function load(steamid) {
-  try {
-    const raw = localStorage.getItem(KEY);
-    const parsed = raw ? JSON.parse(raw) : null;
-    state = parsed?.version === 1 ? parsed : emptyState();
-  } catch {
-    state = emptyState();
-  }
-  if (state.steamid !== steamid) {
-    state = { ...emptyState(), steamid };
-    persist();
-  }
+/** Pull the player's state down. Call once after sign-in. */
+export async function load() {
+  state = await api.getState();
   return state;
 }
 
 export function reset() {
   state = emptyState();
-  try {
-    localStorage.removeItem(KEY);
-  } catch {
-    /* nothing to do */
-  }
 }
-
-const gameState = (appid) => (state.games[appid] ??= emptyGame());
 
 export const getGame = (appid) => ({ ...emptyGame(), ...state.games[appid] });
 
-export function setActive(appid, task) {
-  gameState(appid).active = { ...task, rolledAt: Date.now() };
-  persist();
-}
-
-export function completeActive(appid) {
-  const game = gameState(appid);
-  if (!game.active) return null;
-  const done = { ...game.active, completedAt: Date.now() };
-  game.completed.unshift(done);
-  game.active = null;
-  persist();
-  return done;
-}
-
-export function skipActive(appid) {
-  const game = gameState(appid);
-  const skipped = game.active;
-  game.active = null;
-  game.skipped += 1;
-  persist();
-  return skipped;
-}
-
-/** Totals across every game, for the dashboard strip. */
-export function totals() {
-  let completed = 0;
-  let skipped = 0;
-  let active = 0;
-  for (const game of Object.values(state.games)) {
-    completed += game.completed?.length ?? 0;
-    skipped += game.skipped ?? 0;
-    if (game.active) active += 1;
-  }
-  return { completed, skipped, active };
-}
+export const totals = () => state.totals;
 
 export const activeAppIds = () =>
   Object.entries(state.games)
     .filter(([, g]) => g.active)
     .map(([appid]) => Number(appid));
+
+/** Fold a mutation's response back into the local copy. */
+function apply(result) {
+  if (result?.appid !== undefined && result.game) state.games[result.appid] = result.game;
+  if (result?.totals) state.totals = result.totals;
+  return result;
+}
+
+export const roll = async (appid, options) => apply(await api.rollTask(appid, options));
+
+/**
+ * Ask the server to verify against Steam. Resolves with `completed: false`
+ * when the achievement is still locked — that is an answer, not an error.
+ */
+export const complete = async (appid) => apply(await api.completeTask(appid));
+
+export const skip = async (appid) => apply(await api.skipTask(appid));

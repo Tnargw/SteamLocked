@@ -41,11 +41,32 @@ an open redirect.
 | `GET /auth/steam/callback`               | —    | Verifies, redirects back with `#token=`   |
 | `GET /api/me`                            | ✔    | Profile                                   |
 | `GET /api/me/games`                      | ✔    | Owned games                               |
+| `GET /api/me/state`                      | ✔    | All task progress for the player          |
 | `GET /api/games/:appid/achievements`     | ✔    | Player state + schema + global rarity      |
-| `GET /api/games/:appid/roll?difficulty=` | ✔    | Random locked achievement                 |
+| `POST /api/games/:appid/roll?difficulty=`| ✔    | Rolls and claims the active slot          |
+| `POST /api/games/:appid/complete`        | ✔    | Verifies against Steam, then banks it     |
+| `POST /api/games/:appid/skip`            | ✔    | Drops the task and counts a skip          |
 
 Difficulty tiers come from global unlock percentages: **easy** ≥50%,
 **medium** 20–50%, **hard** 5–20%, **insane** <5%.
+
+## Task state
+
+Progress lives in **Cloudflare D1**, keyed by SteamID, so it follows a player
+between devices. Three tables: `active_tasks`, `completed_tasks`, `game_skips`
+(see `backend/migrations/`).
+
+Two rules are enforced by the schema rather than by application code:
+
+- `active_tasks` is keyed on `(steamid, appid)`, so a game can only ever hold
+  one active task. Rolling uses a conditional insert, so if two devices roll at
+  the same moment exactly one wins and the other gets a `409`.
+- `completed_tasks` is keyed on `(steamid, appid, achievement)`, so a retried
+  request cannot credit the same achievement twice.
+
+**The server verifies completions.** A client can ask to complete a task, but
+the Worker re-checks the Steam API before banking it — otherwise anyone could
+POST their way to a perfect record, which would defeat the whole premise.
 
 ## Local development
 
@@ -53,6 +74,7 @@ Difficulty tiers come from global unlock percentages: **easy** ≥50%,
 cd backend
 cp .dev.vars.example .dev.vars   # then fill in both values
 npm install
+npx wrangler d1 migrations apply steamlocked --local
 npm run dev                      # Worker on :8787
 ```
 
@@ -73,6 +95,10 @@ CORS and redirect allowlists.
 - **Backend:** repo secrets `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`,
   `STEAM_API_KEY`, and `SESSION_SECRET`. The deploy workflow pushes the last two
   to the Worker on every run.
+- **Database:** `npx wrangler d1 create steamlocked`, then paste the printed
+  `database_id` into `backend/wrangler.jsonc`. The deploy workflow applies
+  migrations before each deploy, so the schema is never behind the code. The
+  API token needs **D1: Edit** in addition to the Workers permissions.
 
 Live API: <https://steamlocked.grant-watson.workers.dev>
 

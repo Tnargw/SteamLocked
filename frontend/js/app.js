@@ -380,23 +380,31 @@ async function renderGame(appid) {
 
   if (!data.available) return;
 
-  paintTask(appid, data, taskSlot);
   listSlot.append(achievementList(data));
+  await paintTask(appid, data, taskSlot);
 }
 
 /** The roll / active-task / completed panel for one game. */
-function paintTask(appid, data, slot) {
+async function paintTask(appid, data, slot) {
   const saved = store.getGame(appid);
   const byKey = new Map(data.achievements.map((a) => [a.key, a]));
 
-  // Auto-verify: if Steam now reports the active task as unlocked, it's done.
-  // Re-render the whole view so progress, counts and the list update together.
+  // Auto-verify: if Steam now reports the active task as unlocked, hand it to
+  // the server to bank. The server re-checks Steam itself, so this is a nudge
+  // rather than a claim. Re-render the whole view afterwards so progress,
+  // counts and the achievement list update together.
   if (saved.active && byKey.get(saved.active.key)?.unlocked) {
-    const done = store.completeActive(appid);
-    renderAccount();
-    toast(`Task complete: ${done.name}`, "success");
-    renderGame(appid);
-    return;
+    try {
+      const result = await store.complete(appid);
+      if (result.completed) {
+        renderAccount();
+        toast(`Task complete: ${result.task.name}`, "success");
+        renderGame(appid);
+        return;
+      }
+    } catch (err) {
+      toast(err.message, "error");
+    }
   }
 
   slot.replaceChildren();
@@ -431,7 +439,7 @@ function paintTask(appid, data, slot) {
           h(
             "button",
             { class: "btn btn-primary", onClick: (e) => verify(appid, e.currentTarget, slot) },
-            "I've done it — check Steam",
+            CHECK_LABEL,
           ),
           h("button", { class: "btn btn-ghost", onClick: () => skip(appid, slot) }, "Skip task"),
         ),
@@ -519,12 +527,10 @@ async function doRoll(appid, difficulty, button, slot) {
   button.disabled = true;
   button.textContent = "Rolling…";
   try {
-    const result = await api.rollTask(appid, { difficulty });
-    store.setActive(appid, result.task);
+    const result = await store.roll(appid, { difficulty });
     renderAccount();
     toast(`Rolled: ${result.task.name}`, "success");
-    const data = await api.getAchievements(appid);
-    paintTask(appid, data, slot);
+    await paintTask(appid, await api.getAchievements(appid), slot);
   } catch (err) {
     toast(err.message, "error");
     button.disabled = false;
@@ -532,34 +538,34 @@ async function doRoll(appid, difficulty, button, slot) {
   }
 }
 
+const CHECK_LABEL = "I've done it — check Steam";
+
 async function verify(appid, button, slot) {
   button.disabled = true;
   button.textContent = "Checking Steam…";
   try {
-    const data = await api.getAchievements(appid);
-    const saved = store.getGame(appid);
-    const current = data.achievements.find((a) => a.key === saved.active?.key);
-    if (current?.unlocked) {
-      paintTask(appid, data, slot); // auto-verify path completes it and re-renders
-    } else {
-      toast("Steam says that one's still locked. Keep at it.", "error");
-      button.disabled = false;
-      button.textContent = "I've done it — check Steam";
+    // The server is the one that talks to Steam and decides.
+    const result = await store.complete(appid);
+    if (result.completed) {
+      renderAccount();
+      toast(`Task complete: ${result.task.name}`, "success");
+      renderGame(appid);
+      return;
     }
+    toast("Steam says that one's still locked. Keep at it.", "error");
   } catch (err) {
     toast(err.message, "error");
-    button.disabled = false;
-    button.textContent = "I've done it — check Steam";
   }
+  button.disabled = false;
+  button.textContent = CHECK_LABEL;
 }
 
 async function skip(appid, slot) {
-  const skipped = store.skipActive(appid);
-  renderAccount();
-  toast(skipped ? `Skipped: ${skipped.name}` : "Task skipped.");
   try {
-    const data = await api.getAchievements(appid);
-    paintTask(appid, data, slot);
+    const result = await store.skip(appid);
+    renderAccount();
+    toast(result.skipped ? `Skipped: ${result.skipped.name}` : "Task skipped.");
+    await paintTask(appid, await api.getAchievements(appid), slot);
   } catch (err) {
     toast(err.message, "error");
   }
@@ -652,7 +658,7 @@ async function boot() {
   if (api.getToken()) {
     try {
       me = await api.getMe();
-      store.load(me.steamid);
+      await store.load();
     } catch (err) {
       me = null;
       if (err.status !== 401) toast(err.message, "error");

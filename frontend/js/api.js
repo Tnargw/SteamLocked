@@ -38,7 +38,7 @@ export class ApiError extends Error {
   }
 }
 
-async function request(path, { auth = false } = {}) {
+async function request(path, { auth = false, method = "GET" } = {}) {
   const headers = {};
   if (auth) {
     const token = getToken();
@@ -48,7 +48,7 @@ async function request(path, { auth = false } = {}) {
 
   let res;
   try {
-    res = await fetch(`${API_BASE}${path}`, { headers });
+    res = await fetch(`${API_BASE}${path}`, { method, headers });
   } catch {
     throw new ApiError(0, "Couldn't reach the SteamLocked server.");
   }
@@ -70,8 +70,18 @@ export const getMyGames = () => request("/api/me/games", { auth: true });
 export const getAchievements = (appid) =>
   request(`/api/games/${appid}/achievements`, { auth: true });
 
+/** Whole-player task state, the server's copy. */
+export const getState = () => request("/api/me/state", { auth: true });
+
 export const rollTask = (appid, { difficulty = "any", exclude = null } = {}) => {
   const params = new URLSearchParams({ difficulty });
   if (exclude) params.set("exclude", exclude);
-  return request(`/api/games/${appid}/roll?${params}`, { auth: true });
+  return request(`/api/games/${appid}/roll?${params}`, { auth: true, method: "POST" });
 };
+
+/** Asks the server to check Steam and bank the task if it is genuinely done. */
+export const completeTask = (appid) =>
+  request(`/api/games/${appid}/complete`, { auth: true, method: "POST" });
+
+export const skipTask = (appid) =>
+  request(`/api/games/${appid}/skip`, { auth: true, method: "POST" });

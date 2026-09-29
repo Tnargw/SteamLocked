@@ -1,5 +1,5 @@
 import { createExecutionContext, env, waitOnExecutionContext } from "cloudflare:test";
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import worker from "../src/index.js";
 import { mintToken } from "../src/auth.js";
 
@@ -11,6 +11,15 @@ beforeAll(async () => {
   token = await mintToken(env, STEAMID);
 });
 afterEach(() => vi.restoreAllMocks());
+
+// Task state is persisted now, so each test starts from an empty database.
+beforeEach(async () => {
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM active_tasks"),
+    env.DB.prepare("DELETE FROM completed_tasks"),
+    env.DB.prepare("DELETE FROM game_skips"),
+  ]);
+});
 
 /** Drive the Worker exactly as the runtime would. */
 async function call(path, { headers, method = "GET" } = {}) {
@@ -355,9 +364,11 @@ describe("GET /api/games/:appid/achievements", () => {
   });
 });
 
-describe("GET /api/games/:appid/roll", () => {
+describe("POST /api/games/:appid/roll", () => {
   const roll = (appid, query = "") =>
-    call(`/api/games/${appid}/roll${query}`, { headers: authed() });
+    call(`/api/games/${appid}/roll${query}`, { headers: authed(), method: "POST" });
+
+  const clearActive = () => env.DB.prepare("DELETE FROM active_tasks").run();
 
   it("only ever rolls an achievement the player has not unlocked", async () => {
     stubSteam(sampleGame());
@@ -366,6 +377,7 @@ describe("GET /api/games/:appid/roll", () => {
       const body = await (await roll(201)).json();
       expect(body.task.unlocked).toBe(false);
       expect(["COMMON", "RARE"]).toContain(body.task.key);
+      await clearActive();
     }
   });
 
@@ -448,5 +460,10 @@ describe("GET /api/games/:appid/roll", () => {
   it("400s an unknown difficulty rather than silently rolling anything", async () => {
     stubSteam(sampleGame());
     expect((await roll(208, "?difficulty=trivial")).status).toBe(400);
+  });
+
+  it("rejects a GET, since rolling changes state", async () => {
+    const res = await call("/api/games/209/roll", { headers: authed() });
+    expect(res.status).toBe(405);
   });
 });

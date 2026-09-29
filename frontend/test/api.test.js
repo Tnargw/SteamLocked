@@ -142,6 +142,37 @@ describe("roll parameters", () => {
   });
 });
 
+describe("state-changing calls", () => {
+  beforeEach(() => api.setToken("tok.sig"));
+
+  it.each([
+    ["rollTask", () => api.rollTask(730), "/roll"],
+    ["completeTask", () => api.completeTask(730), "/complete"],
+    ["skipTask", () => api.skipTask(730), "/skip"],
+  ])("%s uses POST, since it mutates server state", async (_label, run, path) => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({}));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await run();
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toContain(path);
+    expect(init.method).toBe("POST");
+    expect(init.headers.Authorization).toBe("Bearer tok.sig");
+  });
+
+  it("reads whole-player state from the server", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ games: {}, totals: {} }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.getState();
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toContain("/api/me/state");
+    expect(init.method).toBe("GET");
+  });
+});
+
 describe("network failures", () => {
   it("reports an unreachable server in plain language", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));

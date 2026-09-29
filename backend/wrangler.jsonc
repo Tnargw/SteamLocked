@@ -7,5 +7,16 @@
   "compatibility_date": "2026-08-01",
   "observability": {
     "enabled": true
-  }
+  },
+
+  // Task state. `wrangler dev` uses a local copy of this database by default —
+  // add --remote when you deliberately want to work against production data.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "steamlocked",
+      "database_id": "1aac3978-764f-41ff-9d8d-1bcafdbc7cf0",
+      "migrations_dir": "migrations"
+    }
+  ]
 }

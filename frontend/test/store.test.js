@@ -1,8 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as store from "../js/store.js";
+import * as api from "../js/api.js";
 
-const PLAYER = "76561198099579975";
-const OTHER = "76561190000000000";
 const CS2 = 730;
 
 const task = (over = {}) => ({
@@ -12,173 +11,201 @@ const task = (over = {}) => ({
   icon: null,
   tier: "insane",
   globalPercent: 1.2,
+  rolledAt: 1700000000000,
   ...over,
 });
 
-beforeEach(() => {
-  localStorage.clear();
-  store.reset();
+const serverState = (games = {}, totals = { completed: 0, skipped: 0, active: 0 }) => ({
+  games,
+  totals,
 });
 
-describe("load — per-player isolation", () => {
-  it("starts a player with an empty slate", () => {
-    store.load(PLAYER);
+beforeEach(() => {
+  store.reset();
+  vi.restoreAllMocks();
+});
+
+afterEach(() => vi.restoreAllMocks());
+
+describe("load — the server is the source of truth", () => {
+  it("starts empty before anything is loaded", () => {
     expect(store.totals()).toEqual({ completed: 0, skipped: 0, active: 0 });
+    expect(store.activeAppIds()).toEqual([]);
   });
 
-  it("persists a player's progress across reloads", () => {
-    store.load(PLAYER);
-    store.setActive(CS2, task());
-    store.load(PLAYER); // simulates a page refresh
+  it("mirrors whatever the server returns", async () => {
+    vi.spyOn(api, "getState").mockResolvedValue(
+      serverState(
+        { [CS2]: { active: task(), completed: [], skipped: 2 } },
+        { completed: 0, skipped: 2, active: 1 },
+      ),
+    );
+
+    await store.load();
+
     expect(store.getGame(CS2).active).toMatchObject({ key: "RARE" });
+    expect(store.getGame(CS2).skipped).toBe(2);
+    expect(store.totals()).toEqual({ completed: 0, skipped: 2, active: 1 });
   });
 
-  it("wipes state when a different account signs in", () => {
-    store.load(PLAYER);
-    store.setActive(CS2, task());
-    store.load(OTHER);
+  it("reads progress that was made on another device", async () => {
+    // Nothing was rolled in this browser — it all comes down from the server.
+    vi.spyOn(api, "getState").mockResolvedValue(
+      serverState(
+        { [CS2]: { active: null, completed: [task({ key: "OLD" })], skipped: 0 } },
+        { completed: 1, skipped: 0, active: 0 },
+      ),
+    );
+
+    await store.load();
+
+    expect(store.getGame(CS2).completed).toHaveLength(1);
+    expect(store.totals().completed).toBe(1);
+  });
+
+  it("returns a blank game for an app with no history", () => {
+    expect(store.getGame(999)).toEqual({ active: null, completed: [], skipped: 0 });
+  });
+
+  it("lists the games holding an active task", async () => {
+    vi.spyOn(api, "getState").mockResolvedValue(
+      serverState({
+        730: { active: task(), completed: [], skipped: 0 },
+        570: { active: null, completed: [], skipped: 1 },
+        553850: { active: task({ key: "B" }), completed: [], skipped: 0 },
+      }),
+    );
+
+    await store.load();
+    expect(store.activeAppIds().sort((a, b) => a - b)).toEqual([730, 553850]);
+  });
+
+  it("propagates a load failure rather than silently showing an empty slate", async () => {
+    vi.spyOn(api, "getState").mockRejectedValue(new Error("offline"));
+    await expect(store.load()).rejects.toThrow("offline");
+  });
+});
+
+describe("roll", () => {
+  it("folds the server response into local state", async () => {
+    vi.spyOn(api, "rollTask").mockResolvedValue({
+      appid: CS2,
+      game: { active: task(), completed: [], skipped: 0 },
+      totals: { completed: 0, skipped: 0, active: 1 },
+      task: task(),
+    });
+
+    const result = await store.roll(CS2, { difficulty: "insane" });
+
+    expect(result.task.key).toBe("RARE");
+    expect(store.getGame(CS2).active).toMatchObject({ key: "RARE" });
+    expect(store.totals().active).toBe(1);
+  });
+
+  it("passes the difficulty through to the API", async () => {
+    const spy = vi.spyOn(api, "rollTask").mockResolvedValue({
+      appid: CS2,
+      game: { active: task(), completed: [], skipped: 0 },
+      totals: { completed: 0, skipped: 0, active: 1 },
+      task: task(),
+    });
+
+    await store.roll(CS2, { difficulty: "hard" });
+    expect(spy).toHaveBeenCalledWith(CS2, { difficulty: "hard" });
+  });
+
+  it("leaves local state untouched when the server refuses", async () => {
+    vi.spyOn(api, "rollTask").mockRejectedValue(new Error("already have an active task"));
+
+    await expect(store.roll(CS2)).rejects.toThrow(/active task/);
     expect(store.getGame(CS2).active).toBeNull();
-    expect(store.totals().active).toBe(0);
+  });
+});
+
+describe("complete", () => {
+  it("applies a successful completion", async () => {
+    vi.spyOn(api, "completeTask").mockResolvedValue({
+      appid: CS2,
+      completed: true,
+      task: task(),
+      game: { active: null, completed: [task()], skipped: 0 },
+      totals: { completed: 1, skipped: 0, active: 0 },
+    });
+
+    const result = await store.complete(CS2);
+
+    expect(result.completed).toBe(true);
+    expect(store.getGame(CS2).active).toBeNull();
+    expect(store.getGame(CS2).completed).toHaveLength(1);
+    expect(store.totals().completed).toBe(1);
   });
 
-  it("discards state written by an incompatible future version", () => {
-    localStorage.setItem("steamlocked.state.v1", JSON.stringify({ version: 99, games: {} }));
-    store.load(PLAYER);
-    expect(store.totals()).toEqual({ completed: 0, skipped: 0, active: 0 });
-  });
+  it("treats a still-locked achievement as an answer, not an error", async () => {
+    vi.spyOn(api, "completeTask").mockResolvedValue({
+      appid: CS2,
+      completed: false,
+      game: { active: task(), completed: [], skipped: 0 },
+      totals: { completed: 0, skipped: 0, active: 1 },
+    });
 
-  it("survives corrupt JSON in storage instead of throwing", () => {
-    localStorage.setItem("steamlocked.state.v1", "{not json");
-    expect(() => store.load(PLAYER)).not.toThrow();
+    const result = await store.complete(CS2);
+
+    expect(result.completed).toBe(false);
+    // The task stays locked in.
+    expect(store.getGame(CS2).active).toMatchObject({ key: "RARE" });
     expect(store.totals().completed).toBe(0);
   });
 });
 
-describe("the one-active-task rule", () => {
-  beforeEach(() => store.load(PLAYER));
+describe("skip", () => {
+  it("clears the task and records the skip the server reports", async () => {
+    vi.spyOn(api, "skipTask").mockResolvedValue({
+      appid: CS2,
+      skipped: task(),
+      game: { active: null, completed: [], skipped: 1 },
+      totals: { completed: 0, skipped: 1, active: 0 },
+    });
 
-  it("records a rolled task as active with a timestamp", () => {
-    store.setActive(CS2, task());
-    const active = store.getGame(CS2).active;
-    expect(active.key).toBe("RARE");
-    expect(active.rolledAt).toBeTypeOf("number");
-  });
+    const result = await store.skip(CS2);
 
-  it("counts one active task per game, not per roll", () => {
-    store.setActive(CS2, task({ key: "A" }));
-    store.setActive(CS2, task({ key: "B" }));
-    expect(store.totals().active).toBe(1);
-    expect(store.getGame(CS2).active.key).toBe("B");
-  });
-
-  it("tracks active tasks across multiple games independently", () => {
-    store.setActive(CS2, task({ key: "A" }));
-    store.setActive(570, task({ key: "B" }));
-    expect(store.totals().active).toBe(2);
-    expect(store.activeAppIds().sort()).toEqual([570, 730]);
-  });
-
-  it("reports no active app ids when nothing is rolled", () => {
-    expect(store.activeAppIds()).toEqual([]);
-  });
-});
-
-describe("completing a task", () => {
-  beforeEach(() => store.load(PLAYER));
-
-  it("moves the active task into the completed list and clears the slot", () => {
-    store.setActive(CS2, task());
-    const done = store.completeActive(CS2);
-
-    expect(done.key).toBe("RARE");
-    expect(done.completedAt).toBeTypeOf("number");
-    expect(store.getGame(CS2).active).toBeNull();
-    expect(store.getGame(CS2).completed).toHaveLength(1);
-  });
-
-  it("puts the most recent completion first", () => {
-    store.setActive(CS2, task({ key: "FIRST" }));
-    store.completeActive(CS2);
-    store.setActive(CS2, task({ key: "SECOND" }));
-    store.completeActive(CS2);
-
-    expect(store.getGame(CS2).completed.map((c) => c.key)).toEqual(["SECOND", "FIRST"]);
-  });
-
-  it("does nothing when there is no active task to complete", () => {
-    expect(store.completeActive(CS2)).toBeNull();
-    expect(store.getGame(CS2).completed).toHaveLength(0);
-  });
-
-  it("frees the slot so a new task can be rolled", () => {
-    store.setActive(CS2, task());
-    store.completeActive(CS2);
-    store.setActive(CS2, task({ key: "NEXT" }));
-    expect(store.getGame(CS2).active.key).toBe("NEXT");
-  });
-});
-
-describe("skipping a task", () => {
-  beforeEach(() => store.load(PLAYER));
-
-  it("clears the task and counts the skip", () => {
-    store.setActive(CS2, task());
-    const skipped = store.skipActive(CS2);
-
-    expect(skipped.key).toBe("RARE");
+    expect(result.skipped.key).toBe("RARE");
     expect(store.getGame(CS2).active).toBeNull();
     expect(store.getGame(CS2).skipped).toBe(1);
-  });
-
-  it("does not count a skip as a completion", () => {
-    store.setActive(CS2, task());
-    store.skipActive(CS2);
-    expect(store.totals()).toMatchObject({ completed: 0, skipped: 1, active: 0 });
-  });
-
-  it("accumulates skips across repeated rolls", () => {
-    for (const key of ["A", "B", "C"]) {
-      store.setActive(CS2, task({ key }));
-      store.skipActive(CS2);
-    }
-    expect(store.getGame(CS2).skipped).toBe(3);
+    expect(store.totals()).toMatchObject({ completed: 0, skipped: 1 });
   });
 });
 
-describe("totals across the library", () => {
-  beforeEach(() => store.load(PLAYER));
+describe("reset", () => {
+  it("drops everything on sign-out", async () => {
+    vi.spyOn(api, "getState").mockResolvedValue(
+      serverState(
+        { [CS2]: { active: task(), completed: [task()], skipped: 3 } },
+        { completed: 1, skipped: 3, active: 1 },
+      ),
+    );
+    await store.load();
 
-  it("sums completions, skips and active tasks over every game", () => {
-    store.setActive(CS2, task({ key: "A" }));
-    store.completeActive(CS2);
-    store.setActive(CS2, task({ key: "B" }));
-    store.skipActive(CS2);
-    store.setActive(570, task({ key: "C" }));
+    store.reset();
 
-    expect(store.totals()).toEqual({ completed: 1, skipped: 1, active: 1 });
-  });
-});
-
-describe("storage failures (private browsing)", () => {
-  it("keeps working in memory when localStorage.setItem throws", () => {
-    store.load(PLAYER);
-    const spy = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
-      throw new DOMException("QuotaExceededError");
-    });
-
-    expect(() => store.setActive(CS2, task())).not.toThrow();
-    expect(store.getGame(CS2).active.key).toBe("RARE");
-
-    spy.mockRestore();
+    expect(store.totals()).toEqual({ completed: 0, skipped: 0, active: 0 });
+    expect(store.getGame(CS2).active).toBeNull();
+    expect(store.activeAppIds()).toEqual([]);
   });
 
-  it("treats an unreadable store as empty rather than crashing", () => {
-    const spy = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
-      throw new DOMException("SecurityError");
-    });
+  it("does not leave the previous account's progress visible to the next", async () => {
+    vi.spyOn(api, "getState").mockResolvedValueOnce(
+      serverState(
+        { [CS2]: { active: task(), completed: [], skipped: 0 } },
+        { completed: 0, skipped: 0, active: 1 },
+      ),
+    );
+    await store.load();
+    store.reset();
 
-    expect(() => store.load(PLAYER)).not.toThrow();
+    vi.spyOn(api, "getState").mockResolvedValue(serverState());
+    await store.load();
 
-    spy.mockRestore();
+    expect(store.getGame(CS2).active).toBeNull();
+    expect(store.totals().active).toBe(0);
   });
 });

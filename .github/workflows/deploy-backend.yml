@@ -32,6 +32,16 @@ jobs:
 
       - run: npm ci
 
+      # Schema first: a Worker that expects a table the database lacks would
+      # fail every request. Migrations are idempotent, so re-running is safe.
+      - name: Apply D1 migrations
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: backend
+          command: d1 migrations apply steamlocked --remote
+
       - name: Deploy to Cloudflare Workers
         uses: cloudflare/wrangler-action@v3
         with:
