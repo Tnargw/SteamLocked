@@ -176,3 +176,121 @@ export async function skipActive(env, steamid, appid) {
       .bind(steamid, appid),
   ]);
 }
+
+// --- leaderboard -------------------------------------------------------------
+
+/**
+ * What a completed task is worth. Rarity-weighted on purpose: ranking by raw
+ * count would reward grinding easy achievements over actually hard ones.
+ */
+export const TIER_POINTS = Object.freeze({
+  insane: 100,
+  hard: 50,
+  medium: 25,
+  easy: 10,
+  unknown: 25,
+});
+
+// Built from TIER_POINTS so the scoring rule lives in exactly one place.
+// Only our own constant keys are interpolated — no user input reaches the SQL.
+const POINTS_SQL = `CASE c.tier ${Object.entries(TIER_POINTS)
+  .filter(([tier]) => tier !== "unknown")
+  .map(([tier, points]) => `WHEN '${tier}' THEN ${points}`)
+  .join(" ")} ELSE ${TIER_POINTS.unknown} END`;
+
+const SCORE_SQL = `
+  SELECT p.steamid                AS steamid,
+         p.name                   AS name,
+         p.avatar                 AS avatar,
+         COUNT(c.achievement)     AS tasks,
+         SUM(${POINTS_SQL})       AS points
+    FROM players p
+    JOIN completed_tasks c ON c.steamid = p.steamid
+   WHERE p.listed = 1
+   GROUP BY p.steamid`;
+
+/** Remember who a player is, so the board can show a name instead of an id. */
+export async function upsertPlayer(env, steamid, { name, avatar }) {
+  const db = requireDb(env);
+  const now = Date.now();
+  await db
+    .prepare(
+      `INSERT INTO players (steamid, name, avatar, first_seen, last_seen)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT (steamid) DO UPDATE SET
+         name = excluded.name,
+         avatar = excluded.avatar,
+         last_seen = excluded.last_seen`,
+    )
+    .bind(steamid, name ?? null, avatar ?? null, now, now)
+    .run();
+}
+
+export async function readSettings(env, steamid) {
+  const db = requireDb(env);
+  const row = await db
+    .prepare("SELECT listed FROM players WHERE steamid = ?")
+    .bind(steamid)
+    .first();
+  // No row yet means the player has not loaded their profile — default listed.
+  return { listed: row ? row.listed === 1 : true };
+}
+
+export async function setListed(env, steamid, listed) {
+  const db = requireDb(env);
+  const now = Date.now();
+  await db
+    .prepare(
+      `INSERT INTO players (steamid, listed, first_seen, last_seen)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT (steamid) DO UPDATE SET listed = excluded.listed, last_seen = excluded.last_seen`,
+    )
+    .bind(steamid, listed ? 1 : 0, now, now)
+    .run();
+  return { listed: Boolean(listed) };
+}
+
+const scoreRow = (row, rank) => ({
+  rank,
+  steamid: row.steamid,
+  name: row.name ?? `Player ${String(row.steamid).slice(-4)}`,
+  avatar: row.avatar ?? null,
+  tasks: row.tasks ?? 0,
+  points: row.points ?? 0,
+});
+
+/**
+ * Top players, plus where the caller sits even if they are off the bottom of
+ * the page. An opted-out caller gets no rank — they are not being ranked.
+ */
+export async function leaderboard(env, { limit = 50, steamid = null } = {}) {
+  const db = requireDb(env);
+
+  const top = await db
+    .prepare(`${SCORE_SQL} ORDER BY points DESC, tasks DESC, p.steamid ASC LIMIT ?`)
+    .bind(limit)
+    .all();
+
+  const entries = (top.results ?? []).map((row, i) => scoreRow(row, i + 1));
+  if (!steamid) return { entries, me: null };
+
+  const mine = entries.find((e) => e.steamid === steamid);
+  if (mine) return { entries, me: mine };
+
+  // Outside the page: score the caller, then count how many beat them.
+  const self = await db
+    .prepare(`SELECT * FROM (${SCORE_SQL}) WHERE steamid = ?`)
+    .bind(steamid)
+    .first();
+  if (!self) return { entries, me: null };
+
+  const ahead = await db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM (${SCORE_SQL})
+        WHERE points > ?1 OR (points = ?1 AND tasks > ?2)`,
+    )
+    .bind(self.points, self.tasks)
+    .first();
+
+  return { entries, me: scoreRow(self, (ahead?.n ?? 0) + 1) };
+}

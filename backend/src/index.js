@@ -13,9 +13,12 @@
  *   GET  /api/steam/trending?limit=
  *   GET  /auth/steam/login?return=
  *   GET  /auth/steam/callback
+ *   GET  /api/leaderboard?limit=                     (auth optional)
  *   GET  /api/me                                     (auth)
  *   GET  /api/me/games                               (auth)
  *   GET  /api/me/state                               (auth)
+ *   GET  /api/me/settings                            (auth)
+ *   POST /api/me/settings  {listed}                  (auth)
  *   GET  /api/games/:appid/achievements              (auth)
  *   POST /api/games/:appid/roll?difficulty=&exclude= (auth)
  *   POST /api/games/:appid/complete                  (auth)
@@ -30,6 +33,18 @@ import * as steam from "./steam.js";
 import * as db from "./db.js";
 
 const DIFFICULTIES = new Set(["any", "easy", "medium", "hard", "insane"]);
+const LEADERBOARD_MAX = 100;
+
+/** The caller's SteamID if they sent a valid token, or null. */
+async function optionalUser(request, env) {
+  if (!request.headers.get("Authorization")) return null;
+  try {
+    return await requireUser(request, env);
+  } catch {
+    // A stale token shouldn't stop a public board from rendering.
+    return null;
+  }
+}
 const ALREADY_ACTIVE = "You already have an active task for this game.";
 
 /** Pick a random locked achievement and claim the game's active slot. */
@@ -110,14 +125,35 @@ async function route(request, url, env, ctx) {
   if (pathname === "/health" && GET) return { ok: true };
   if (pathname === "/api/steam/trending" && GET) return steam.trending(url, ctx);
 
+  if (pathname === "/api/leaderboard" && GET) {
+    const raw = parseInt(url.searchParams.get("limit") ?? "50", 10);
+    const limit = Math.min(Math.max(Number.isNaN(raw) ? 50 : raw, 1), LEADERBOARD_MAX);
+    return db.leaderboard(env, { limit, steamid: await optionalUser(request, env) });
+  }
+
   if (pathname === "/api/me" && GET) {
-    return steam.profile(env, await requireUser(request, env));
+    const steamid = await requireUser(request, env);
+    const profile = await steam.profile(env, steamid);
+    // Cache the display name so the leaderboard needn't re-fetch every player.
+    await db.upsertPlayer(env, steamid, profile);
+    return profile;
   }
   if (pathname === "/api/me/games" && GET) {
     return steam.ownedGames(env, await requireUser(request, env));
   }
   if (pathname === "/api/me/state" && GET) {
     return db.readState(env, await requireUser(request, env));
+  }
+  if (pathname === "/api/me/settings") {
+    const steamid = await requireUser(request, env);
+    if (GET) return db.readSettings(env, steamid);
+    if (POST) {
+      const body = await request.json().catch(() => null);
+      if (typeof body?.listed !== "boolean") {
+        throw new ApiError(400, "Expected a JSON body of the form {\"listed\": true}");
+      }
+      return db.setListed(env, steamid, body.listed);
+    }
   }
 
   const match = pathname.match(GAME_ROUTE);
@@ -134,7 +170,16 @@ async function route(request, url, env, ctx) {
   }
 
   // A known path reached with the wrong verb is a 405, not a 404.
-  const knownPaths = ["/", "/health", "/api/steam/trending", "/api/me", "/api/me/games", "/api/me/state"];
+  const knownPaths = [
+    "/",
+    "/health",
+    "/api/steam/trending",
+    "/api/leaderboard",
+    "/api/me",
+    "/api/me/games",
+    "/api/me/state",
+    "/api/me/settings",
+  ];
   if (knownPaths.includes(pathname)) throw new ApiError(405, "Method not allowed");
 
   throw new ApiError(404, "Not found");

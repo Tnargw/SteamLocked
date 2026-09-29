@@ -39,9 +39,12 @@ an open redirect.
 | `GET /api/steam/trending?limit=`         | —    | Most-played chart, enriched with store data |
 | `GET /auth/steam/login?return=`          | —    | Redirects to Steam                        |
 | `GET /auth/steam/callback`               | —    | Verifies, redirects back with `#token=`   |
+| `GET /api/leaderboard?limit=`            | opt  | Public board; adds your own rank if signed in |
 | `GET /api/me`                            | ✔    | Profile                                   |
 | `GET /api/me/games`                      | ✔    | Owned games                               |
 | `GET /api/me/state`                      | ✔    | All task progress for the player          |
+| `GET /api/me/settings`                   | ✔    | Leaderboard visibility                    |
+| `POST /api/me/settings`                  | ✔    | `{"listed": bool}`                        |
 | `GET /api/games/:appid/achievements`     | ✔    | Player state + schema + global rarity      |
 | `POST /api/games/:appid/roll?difficulty=`| ✔    | Rolls and claims the active slot          |
 | `POST /api/games/:appid/complete`        | ✔    | Verifies against Steam, then banks it     |
@@ -68,6 +71,34 @@ Two rules are enforced by the schema rather than by application code:
 the Worker re-checks the Steam API before banking it — otherwise anyone could
 POST their way to a perfect record, which would defeat the whole premise.
 
+## Leaderboard
+
+Ranked by **rarity-weighted points**, not raw task count — ranking by count
+alone would reward grinding easy achievements over beating hard ones:
+
+| Tier | Global unlock rate | Points |
+| ---- | ------------------ | ------ |
+| Insane | under 5% | 100 |
+| Hard | 5–20% | 50 |
+| Medium | 20–50% | 25 |
+| Easy | 50%+ | 10 |
+
+Unrated achievements score as medium. The scoring table lives in one place
+(`TIER_POINTS` in `backend/src/db.js`) and the SQL `CASE` is generated from it,
+so the rule cannot drift between the query and the UI.
+
+The board is **public** and readable signed out. Sending a token also returns
+the caller's own standing, including when they rank below the visible page.
+
+**Players are listed by default and can opt out** in Settings. Opting out hides
+them from the rankings and removes their own rank; it does not touch their
+progress, which keeps counting and reappears if they opt back in. Nothing is
+exposed beyond public Steam identity — name, avatar, SteamID — plus the score.
+
+Display names and avatars are cached in the `players` table, refreshed whenever
+a player loads their profile, so rendering a 50-row board is one query rather
+than 50 calls to `GetPlayerSummaries`.
+
 ## Local development
 
 ```bash
@@ -77,6 +108,9 @@ npm install
 npx wrangler d1 migrations apply steamlocked --local
 npm run dev                      # Worker on :8787
 ```
+
+`wrangler dev` uses a *local* copy of the database. Add `--remote` only when you
+deliberately want to work against production data.
 
 In a second terminal:
 

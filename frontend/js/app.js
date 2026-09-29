@@ -6,6 +6,7 @@ import { hueFor, initials } from "./art.js";
 
 const view = document.getElementById("view");
 const accountEl = document.getElementById("account");
+const navEl = document.getElementById("nav");
 const toastEl = document.getElementById("toast");
 
 let me = null; // signed-in profile, or null
@@ -105,6 +106,31 @@ function errorBox(message, retry) {
   );
 }
 
+// --- navigation --------------------------------------------------------------
+
+const NAV = [
+  ["#/", "Library", true],
+  ["#/leaderboard", "Leaderboard", false],
+  ["#/settings", "Settings", true],
+];
+
+function renderNav() {
+  const current = location.hash || "#/";
+  navEl.replaceChildren(
+    ...NAV.filter(([, , needsAuth]) => me || !needsAuth).map(([href, label]) =>
+      h(
+        "a",
+        {
+          href,
+          class: href === current ? "nav-link nav-current" : "nav-link",
+          "aria-current": href === current ? "page" : null,
+        },
+        label,
+      ),
+    ),
+  );
+}
+
 // --- account strip -----------------------------------------------------------
 
 function renderAccount() {
@@ -136,6 +162,7 @@ function signOut() {
   gamesCache = null;
   location.hash = "#/";
   renderAccount();
+  renderNav();
   router();
   toast("Signed out.");
 }
@@ -322,6 +349,169 @@ async function renderLibrary() {
     ),
     h("div", { class: "section-head" }, h("h2", {}, "Your library"), search),
     grid,
+  );
+}
+
+// --- leaderboard -------------------------------------------------------------
+
+const POINTS_BY_TIER = { insane: 100, hard: 50, medium: 25, easy: 10 };
+
+function scoringKey() {
+  return h(
+    "p",
+    { class: "fine" },
+    "Rarer achievements are worth more: ",
+    ...Object.entries(POINTS_BY_TIER).map(([tier, points]) =>
+      h("span", { class: "score-key" }, `${TIER_LABEL[tier]} ${points}`),
+    ),
+  );
+}
+
+function leaderboardRow(entry, { isMe }) {
+  return h(
+    "li",
+    { class: isMe ? "lb-row lb-you" : "lb-row" },
+    h("span", { class: "lb-rank" }, `#${entry.rank}`),
+    iconImg(entry.avatar, "lb-avatar"),
+    h(
+      "span",
+      { class: "lb-name" },
+      entry.name,
+      isMe ? h("span", { class: "lb-tag" }, "you") : null,
+    ),
+    h("span", { class: "lb-tasks muted small" }, `${entry.tasks} done`),
+    h("span", { class: "lb-points" }, entry.points.toLocaleString()),
+  );
+}
+
+async function renderLeaderboard() {
+  view.replaceChildren(spinner("Loading the leaderboard\u2026"));
+
+  let data;
+  try {
+    data = await api.getLeaderboard(50);
+  } catch (err) {
+    view.replaceChildren(errorBox(err.message, renderLeaderboard));
+    return;
+  }
+
+  if (data.entries.length === 0) {
+    view.replaceChildren(
+      h("h1", {}, "Leaderboard"),
+      h(
+        "section",
+        { class: "panel" },
+        h("h2", {}, "Nobody on the board yet"),
+        h("p", { class: "muted" }, "Complete a task and you will be the first name here."),
+      ),
+      scoringKey(),
+    );
+    return;
+  }
+
+  const mine = data.me?.steamid;
+  const rows = data.entries.map((entry) =>
+    leaderboardRow(entry, { isMe: entry.steamid === mine }),
+  );
+
+  // Ranked, but below the visible page: show the player anyway after a break.
+  const offPage = data.me && !data.entries.some((e) => e.steamid === mine);
+  if (offPage) {
+    rows.push(
+      h("li", { class: "lb-gap", "aria-hidden": "true" }, "\u22ef"),
+      leaderboardRow(data.me, { isMe: true }),
+    );
+  }
+
+  let subtitle;
+  if (data.me) {
+    subtitle = `You are ranked #${data.me.rank} with ${data.me.points.toLocaleString()} points.`;
+  } else if (me) {
+    subtitle = "Complete a task to join the board.";
+  } else {
+    subtitle = "Sign in to see where you would rank.";
+  }
+
+  view.replaceChildren(
+    h("h1", {}, "Leaderboard"),
+    h("p", { class: "muted" }, subtitle),
+    h("ol", { class: "lb" }, ...rows),
+    scoringKey(),
+  );
+}
+
+// --- settings ----------------------------------------------------------------
+
+const LISTED_ON = "You appear on the public leaderboard.";
+const LISTED_OFF = "You are hidden from the leaderboard. Your progress is still saved.";
+
+async function renderSettings() {
+  view.replaceChildren(spinner("Loading settings\u2026"));
+
+  let settings;
+  try {
+    settings = await api.getSettings();
+  } catch (err) {
+    view.replaceChildren(errorBox(err.message, renderSettings));
+    return;
+  }
+
+  const checkbox = h("input", {
+    type: "checkbox",
+    id: "listed",
+    class: "toggle",
+    checked: settings.listed,
+  });
+  const status = h("p", { class: "fine" }, settings.listed ? LISTED_ON : LISTED_OFF);
+
+  checkbox.addEventListener("change", async () => {
+    checkbox.disabled = true;
+    status.textContent = "Saving\u2026";
+    try {
+      const saved = await api.setListed(checkbox.checked);
+      checkbox.checked = saved.listed;
+      status.textContent = saved.listed ? LISTED_ON : LISTED_OFF;
+      toast("Settings saved.", "success");
+    } catch (err) {
+      // Put the switch back where it was, so it never lies about server state.
+      checkbox.checked = !checkbox.checked;
+      status.textContent = checkbox.checked ? LISTED_ON : LISTED_OFF;
+      toast(err.message, "error");
+    }
+    checkbox.disabled = false;
+  });
+
+  view.replaceChildren(
+    h("h1", {}, "Settings"),
+    h(
+      "section",
+      { class: "panel" },
+      h("h2", {}, "Leaderboard"),
+      h(
+        "div",
+        { class: "setting-row" },
+        checkbox,
+        h(
+          "label",
+          { for: "listed" },
+          h("strong", {}, "Show me on the leaderboard"),
+          h(
+            "span",
+            { class: "muted small" },
+            "Lists your Steam name, avatar and score publicly. Turning this off keeps " +
+              "all your progress, it just hides you from the rankings.",
+          ),
+        ),
+      ),
+      status,
+    ),
+    h(
+      "section",
+      { class: "panel" },
+      h("h2", {}, "Account"),
+      h("p", { class: "muted" }, `Signed in as ${me?.name ?? "\u2014"}.`),
+      h("button", { class: "btn btn-ghost", onClick: signOut }, "Sign out"),
+    ),
   );
 }
 
@@ -623,7 +813,12 @@ function achievementList(data) {
 
 function router() {
   const hash = location.hash || "#/";
+  renderNav();
+
+  // The leaderboard is public, so it renders whether or not anyone is signed in.
+  if (hash === "#/leaderboard") return renderLeaderboard();
   if (!me) return renderLanding();
+  if (hash === "#/settings") return renderSettings();
 
   const gameMatch = hash.match(/^#\/game\/(\d+)$/);
   if (gameMatch) return renderGame(gameMatch[1]);
@@ -666,6 +861,7 @@ async function boot() {
   }
 
   renderAccount();
+  renderNav();
   router();
   window.addEventListener("hashchange", router);
 }

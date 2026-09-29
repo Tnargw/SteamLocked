@@ -38,17 +38,25 @@ export class ApiError extends Error {
   }
 }
 
-async function request(path, { auth = false, method = "GET" } = {}) {
+async function request(path, { auth = false, method = "GET", body, optionalAuth = false } = {}) {
   const headers = {};
+  const token = getToken();
   if (auth) {
-    const token = getToken();
     if (!token) throw new ApiError(401, "Not signed in");
     headers.Authorization = `Bearer ${token}`;
+  } else if (optionalAuth && token) {
+    // Lets a public endpoint also tell us where the caller ranks.
+    headers.Authorization = `Bearer ${token}`;
   }
+  if (body !== undefined) headers["Content-Type"] = "application/json";
 
   let res;
   try {
-    res = await fetch(`${API_BASE}${path}`, { method, headers });
+    res = await fetch(`${API_BASE}${path}`, {
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
   } catch {
     throw new ApiError(0, "Couldn't reach the SteamLocked server.");
   }
@@ -85,3 +93,12 @@ export const completeTask = (appid) =>
 
 export const skipTask = (appid) =>
   request(`/api/games/${appid}/skip`, { auth: true, method: "POST" });
+
+/** Public board. Sends the token when we have one so `me` comes back filled in. */
+export const getLeaderboard = (limit = 50) =>
+  request(`/api/leaderboard?limit=${limit}`, { optionalAuth: true });
+
+export const getSettings = () => request("/api/me/settings", { auth: true });
+
+export const setListed = (listed) =>
+  request("/api/me/settings", { auth: true, method: "POST", body: { listed } });
