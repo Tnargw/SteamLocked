@@ -107,7 +107,7 @@ be unit tested:
 
 - **Roll reel** — cycles the *actual* candidate achievement names from the
   locked pool, decelerating (cubic easing on the frame gap) and landing on the
-  winner. Runs for at least 1s even on a fast reply, or the whole thing
+  winner. Runs for at least 2s even on a fast reply, or the whole thing
   flickers and reads as broken. A rejected roll stops the reel immediately.
 - **Stat count-up** — the library totals tick from zero.
 - **Padlock snap** — the shackle drops into the lock and the task card jolts,

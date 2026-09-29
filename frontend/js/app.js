@@ -382,7 +382,7 @@ async function renderLibrary() {
   );
 
   for (const { value, number } of stats) {
-    countUp(number, value, { duration: 650, format: (n) => n.toLocaleString() });
+    countUp(number, value, { duration: 1300, format: (n) => n.toLocaleString() });
   }
 }
 
@@ -795,7 +795,7 @@ async function doRoll(appid, difficulty, button, slot, data, actions) {
   try {
     const result = await spinReel(render, rollCandidates(data, difficulty), {
       result: store.roll(appid, { difficulty }),
-      minMs: 1000,
+      minMs: 2000,
     });
 
     reel.classList.remove("reel-spinning");

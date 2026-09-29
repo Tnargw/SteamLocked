@@ -20,7 +20,7 @@ export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  * Gaps between reel frames, growing so the reel *decelerates* into its result.
  * Cubic on the gap gives a long fast blur and a slow, readable landing.
  */
-export function reelIntervals({ steps = 20, from = 40, to = 300 } = {}) {
+export function reelIntervals({ steps = 24, from = 45, to = 420 } = {}) {
   return Array.from({ length: steps }, (_, i) => {
     const t = steps === 1 ? 1 : i / (steps - 1);
     return Math.round(from + (to - from) * t * t * t);
@@ -35,7 +35,7 @@ export function reelIntervals({ steps = 20, from = 40, to = 300 } = {}) {
  * makes the whole thing flicker and feel broken rather than deliberate. A
  * rejection stops the reel immediately; there is nothing to land on.
  */
-export async function spinReel(render, names, { result, minMs = 1000, intervals } = {}) {
+export async function spinReel(render, names, { result, minMs = 2000, intervals } = {}) {
   const schedule = intervals ?? reelIntervals();
   const pool = names.filter(Boolean);
 
