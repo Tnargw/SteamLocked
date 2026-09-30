@@ -617,3 +617,101 @@ main.wrap { padding-block: 5rem 5.5rem; }
   .library-controls .search { flex: 1 1 100%; }
   .library-controls .select { flex: 1 1 auto; }
 }
+
+/* ===========================================================================
+   Customizable select
+   The native dropdown popup is OS-drawn: square corners, light background, and
+   immune to CSS — `color-scheme: dark` does not reach it. `appearance:
+   base-select` opts the control out of native rendering so the picker becomes a
+   real page element we can style.
+
+   Wrapped in @supports on purpose: browsers without it keep the block above
+   (appearance: none plus a painted chevron), which is exactly today's
+   behaviour. Nothing regresses, it just stops improving.
+   =========================================================================== */
+
+@supports (appearance: base-select) {
+  .select,
+  ::picker(select) {
+    appearance: base-select;
+  }
+
+  .select {
+    /* ::picker-icon is a laid-out child now, so the painted chevron and the
+       padding that reserved room for it both come off. */
+    background-image: none;
+    padding: 0 .8rem;
+    gap: .6rem;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .select:hover { background-image: none; }
+
+  /* The stock picker icon is a filled triangle, which is heavier than the
+     chevron the fallback paints. Zero the glyph and mask in the same chevron
+     shape, so both code paths look identical — and because the shape is now a
+     mask over a background colour, it can recolour and rotate. */
+  .select::picker-icon {
+    font-size: 0;
+    width: 12px;
+    height: 8px;
+    flex: none;
+    background-color: var(--ink-dim);
+    -webkit-mask: url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1.5 1.75 6 6.25l4.5-4.5' fill='none' stroke='%23000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat center / 12px 8px;
+    mask: url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1.5 1.75 6 6.25l4.5-4.5' fill='none' stroke='%23000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat center / 12px 8px;
+    transition: transform .18s ease, background-color .12s ease;
+  }
+  .select:hover::picker-icon { background-color: var(--accent); }
+  .select:open::picker-icon { transform: rotate(180deg); }
+
+  ::picker(select) {
+    /* At least as wide as the control it hangs from, never narrower. */
+    min-width: anchor-size(width);
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-control);
+    padding: .3rem;
+    margin-top: .35rem;
+    box-shadow: 0 14px 34px rgba(0, 0, 0, .55);
+    color: var(--ink);
+
+    /* allow-discrete lets display/overlay participate, so the picker animates
+       out as well as in rather than vanishing. */
+    opacity: 0;
+    transform: translateY(-5px);
+    transition:
+      opacity .14s ease,
+      transform .14s ease,
+      display .14s allow-discrete,
+      overlay .14s allow-discrete;
+  }
+  ::picker(select):popover-open { opacity: 1; transform: translateY(0); }
+
+  .select option {
+    display: flex;
+    align-items: center;
+    padding: .45rem .6rem;
+    border-radius: 7px;
+    font-size: .9rem;
+    cursor: pointer;
+  }
+  /* The stock tick would shunt every label sideways by a different amount;
+     selection is shown with colour and weight instead. */
+  .select option::checkmark { display: none; }
+
+  .select option:hover,
+  .select option:focus {
+    background: var(--panel-2);
+    outline: none;
+  }
+  .select option:checked {
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .select::picker-icon { transition: none; }
+    .select:open::picker-icon { transform: none; }
+    ::picker(select) { transition: none; opacity: 1; transform: none; }
+  }
+}

@@ -115,6 +115,26 @@ functions so the ordering is unit tested:
 - The choice is remembered per device in `localStorage` — a display preference,
   not account state, so it deliberately does not go to the server.
 
+## Selects
+
+The native dropdown popup is drawn by the OS: square corners, light
+background, and beyond the reach of CSS — `color-scheme: dark` does not affect
+it. Both selects therefore opt into **`appearance: base-select`**, which makes
+the picker a real page element that can be styled: dark panel, matching 10px
+radius, shadow, rounded option rows, and an animated open.
+
+It sits inside `@supports (appearance: base-select)`. Browsers without it keep
+the block above — `appearance: none` plus a painted chevron and the native
+popup, exactly today's behaviour. Nothing regresses; it just stops improving.
+
+Two details worth keeping:
+
+- The stock `::picker-icon` is a filled triangle, heavier than the chevron the
+  fallback paints. Its glyph is zeroed and the same chevron masked in over a
+  background colour, so one shape serves both paths and can recolour and rotate.
+- `option::checkmark` is hidden. The stock tick shifts each label by a
+  different amount; selection is shown with colour and weight instead.
+
 ## Animation
 
 Four effects, all in `frontend/js/anim.js` plus a block at the end of
