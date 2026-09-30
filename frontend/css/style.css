@@ -12,6 +12,10 @@
   --danger: #d94f4f;
   --radius: 10px;
   --wrap: 1120px;
+  /* One height for every toolbar-sized control, so a row of them lines up
+     exactly instead of being a pixel or two out from each other. */
+  --control-h: 38px;
+  --control-h-lg: 48px;
 }
 
 * { box-sizing: border-box; }
@@ -91,7 +95,7 @@ p { margin: 0 0 .75rem; }
 .btn:hover { background: #2b3b4d; border-color: #3b4d63; }
 .btn:active { transform: translateY(1px); }
 .btn:disabled { opacity: .55; cursor: default; }
-.btn-lg { font-size: 1rem; padding: .7rem 1.4rem; }
+.btn-lg { font-size: 1rem; height: var(--control-h-lg); padding: 0 1.4rem; }
 .btn-ghost { background: transparent; }
 .btn-primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
 .btn-primary:hover { background: #86d0fb; border-color: #86d0fb; }
@@ -101,18 +105,58 @@ p { margin: 0 0 .75rem; }
 }
 .btn-steam:hover { background: linear-gradient(180deg, #4a80a5, #335c7d); border-color: #5d97c0; }
 
+/* Native select chrome differs wildly between platforms and ignores the dark
+   theme, so the arrow is replaced with our own chevron. The popup list itself
+   is browser UI and cannot be styled — `color-scheme: dark` on :root is what
+   makes it render dark rather than white-on-white. */
 .select {
-  font: inherit; font-size: .9rem;
-  background: var(--panel-2); color: var(--ink);
-  border: 1px solid var(--line); border-radius: 7px; padding: .5rem .7rem;
+  appearance: none;
+  -webkit-appearance: none;
+  font: inherit;
+  font-size: .9rem;
+  height: var(--control-h);
+  color: var(--ink);
+  background-color: var(--panel-2);
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1.5 1.75 6 6.25l4.5-4.5' fill='none' stroke='%238fa0b3' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right .75rem center;
+  background-size: 12px 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  /* Room on the right so the label never collides with the chevron. */
+  padding: 0 2.1rem 0 .75rem;
+  cursor: pointer;
+  transition: border-color .12s ease, background-color .12s ease;
 }
 
-.search {
-  font: inherit; font-size: .9rem;
-  background: var(--bg-2); color: var(--ink);
-  border: 1px solid var(--line); border-radius: 7px; padding: .5rem .8rem;
-  min-width: min(320px, 100%);
+.select:hover {
+  background-color: #2b3b4d;
+  border-color: #3b4d63;
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1.5 1.75 6 6.25l4.5-4.5' fill='none' stroke='%2366c0f4' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
+
+.select:focus-visible { border-color: var(--accent); }
+
+/* Fallback for browsers that would otherwise paint the popup with system
+   colours; harmless where the popup already follows color-scheme. */
+.select option { background: var(--panel); color: var(--ink); }
+
+/* Sits beside a .btn-lg on the roll card, so it matches that height instead. */
+.roll-actions .select { height: var(--control-h-lg); font-size: 1rem; }
+
+.search {
+  font: inherit;
+  font-size: .9rem;
+  height: var(--control-h);
+  background: var(--bg-2);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 0 .8rem;
+  transition: border-color .12s ease;
+}
+.search:hover { border-color: #3b4d63; }
+.search:focus-visible { border-color: var(--accent); }
 .search::placeholder { color: var(--ink-dim); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
@@ -400,6 +444,13 @@ main.wrap { padding-block: 5rem 5.5rem; }
 /* Buttons should never wrap their label onto a second line. */
 .btn { white-space: nowrap; }
 
+/* The two stat pills duplicate the library's own stat strip, so they are the
+   first thing to go when the header runs short of room — well before anything
+   is forced onto a second line. */
+@media (max-width: 1000px) {
+  .account-stat { display: none; }
+}
+
 @media (max-width: 620px) {
   /* The nav needs the room: drop the wordmark and keep the lock as the
      home button, so brand + 3 links + account still fit on one row. */
@@ -541,15 +592,21 @@ main.wrap { padding-block: 5rem 5.5rem; }
    so it is ignored while the row's intrinsic width is computed and then applied
    afterwards — sizing the box too small and overflowing it. */
 .library-controls .search { min-width: 240px; }
+.library-controls .select { min-width: 9.5rem; }
 
-/* Square, so the arrow sits centred rather than floating in a wide button. */
+/* Square and the same height as its neighbours, so the row reads as one
+   control group rather than three things that happen to sit together. */
 .btn-dir {
-  font-size: 1rem;
+  height: var(--control-h);
+  width: var(--control-h);
+  min-width: var(--control-h);
+  padding: 0;
+  font-size: .95rem;
   line-height: 1;
-  padding: .5rem;
-  min-width: 2.3rem;
   justify-content: center;
+  flex: none;
 }
+.btn-dir:hover { color: var(--accent); }
 
 @media (max-width: 620px) {
   .library-controls { width: 100%; flex: 1 1 100%; flex-wrap: wrap; }
