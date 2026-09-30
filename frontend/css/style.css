@@ -16,6 +16,10 @@
      exactly instead of being a pixel or two out from each other. */
   --control-h: 38px;
   --control-h-lg: 48px;
+  /* One radius for every interactive control. 7px read as square on the wide,
+     dark selects — a filled button shows its curve, a dark one on a dark
+     background hides it, so the corner has to be more generous to register. */
+  --radius-control: 10px;
 }
 
 * { box-sizing: border-box; }
@@ -87,7 +91,7 @@ p { margin: 0 0 .75rem; }
   display: inline-flex; align-items: center; justify-content: center; gap: .4rem;
   font: inherit; font-size: .9rem;
   padding: .5rem .95rem;
-  border: 1px solid var(--line); border-radius: 7px;
+  border: 1px solid var(--line); border-radius: var(--radius-control);
   background: var(--panel-2); color: var(--ink);
   cursor: pointer; text-decoration: none;
   transition: background .12s ease, border-color .12s ease, transform .08s ease;
@@ -122,7 +126,7 @@ p { margin: 0 0 .75rem; }
   background-position: right .75rem center;
   background-size: 12px 8px;
   border: 1px solid var(--line);
-  border-radius: 7px;
+  border-radius: var(--radius-control);
   /* Room on the right so the label never collides with the chevron. */
   padding: 0 2.1rem 0 .75rem;
   cursor: pointer;
@@ -151,7 +155,7 @@ p { margin: 0 0 .75rem; }
   background: var(--bg-2);
   color: var(--ink);
   border: 1px solid var(--line);
-  border-radius: 7px;
+  border-radius: var(--radius-control);
   padding: 0 .8rem;
   transition: border-color .12s ease;
 }
