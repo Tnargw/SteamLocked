@@ -4,6 +4,13 @@ import * as api from "./api.js";
 import * as store from "./store.js";
 import { hueFor, initials } from "./art.js";
 import { countUp, playClass, spinReel } from "./anim.js";
+import {
+  SORTS,
+  loadPreference,
+  naturalDirection,
+  savePreference,
+  sortGames,
+} from "./sort.js";
 
 const view = document.getElementById("view");
 const accountEl = document.getElementById("account");
@@ -316,18 +323,69 @@ async function renderLibrary() {
   const active = new Set(store.activeAppIds());
 
   const grid = h("ul", { class: "game-grid" });
+  let query = "";
+  let sort = loadPreference();
+
   const search = h("input", {
     type: "search",
     class: "search",
     placeholder: `Search ${data.count} games…`,
     "aria-label": "Search your library",
-    onInput: (e) => paint(e.target.value.trim().toLowerCase()),
+    onInput: (e) => {
+      query = e.target.value.trim().toLowerCase();
+      paint();
+    },
   });
 
-  function paint(query = "") {
-    const matches = query
+  const sortSelect = h(
+    "select",
+    {
+      class: "select",
+      "aria-label": "Sort library by",
+      onChange: (e) => {
+        // Switching field resets to that field's natural direction: picking
+        // "Name" should give A–Z, not whatever the last sort was reversed to.
+        sort = { key: e.target.value, direction: naturalDirection(e.target.value) };
+        savePreference(sort);
+        syncControls();
+        paint();
+      },
+    },
+    ...Object.entries(SORTS).map(([key, { label }]) =>
+      h("option", { value: key, selected: key === sort.key }, label),
+    ),
+  );
+
+  const dirButton = h("button", {
+    class: "btn btn-dir",
+    type: "button",
+    onClick: () => {
+      sort = { ...sort, direction: sort.direction === "asc" ? "desc" : "asc" };
+      savePreference(sort);
+      syncControls();
+      paint();
+    },
+  });
+
+  function syncControls() {
+    sortSelect.value = sort.key;
+    const ascending = sort.direction === "asc";
+    dirButton.textContent = ascending ? "↑" : "↓";
+    // The arrow alone means nothing to a screen reader, so spell it out.
+    dirButton.setAttribute(
+      "aria-label",
+      ascending
+        ? `Sorted ascending by ${SORTS[sort.key].label.toLowerCase()}. Switch to descending.`
+        : `Sorted descending by ${SORTS[sort.key].label.toLowerCase()}. Switch to ascending.`,
+    );
+    dirButton.title = dirButton.getAttribute("aria-label");
+  }
+
+  function paint() {
+    const filtered = query
       ? data.games.filter((g) => g.name.toLowerCase().includes(query))
       : data.games;
+    const matches = sortGames(filtered, sort.key, sort.direction);
 
     grid.replaceChildren(
       ...matches.slice(0, 240).map((g) =>
@@ -363,6 +421,7 @@ async function renderLibrary() {
     }
   }
 
+  syncControls();
   paint();
 
   // Rendered at 0 and counted up once attached, so the numbers land rather
@@ -379,7 +438,12 @@ async function renderLibrary() {
 
   view.replaceChildren(
     h("div", { class: "stat-strip" }, ...stats.map((s) => s.node)),
-    h("div", { class: "section-head" }, h("h2", {}, "Your library"), search),
+    h(
+      "div",
+      { class: "section-head" },
+      h("h2", {}, "Your library"),
+      h("div", { class: "library-controls" }, search, sortSelect, dirButton),
+    ),
     grid,
   );
 

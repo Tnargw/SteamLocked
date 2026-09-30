@@ -99,6 +99,22 @@ Display names and avatars are cached in the `players` table, refreshed whenever
 a player loads their profile, so rendering a 50-row board is one query rather
 than 50 calls to `GetPlayerSummaries`.
 
+## Library sorting
+
+Sort by **hours played**, **name** or **recently played**, each with an
+ascending/descending toggle. Rules live in `frontend/js/sort.js` as pure
+functions so the ordering is unit tested:
+
+- Every sort declares the direction it should *start* in — most-played first,
+  but names A–Z — so switching field resets to that field's natural direction
+  rather than inheriting whatever the last one was reversed to.
+- Every comparison tiebreaks on name, ascending, in both directions. Without it
+  the hundreds of never-played games in a large library would shuffle position
+  between renders.
+- Search filters first, then the result is sorted, so the two compose.
+- The choice is remembered per device in `localStorage` — a display preference,
+  not account state, so it deliberately does not go to the server.
+
 ## Animation
 
 Four effects, all in `frontend/js/anim.js` plus a block at the end of

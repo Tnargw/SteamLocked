@@ -522,3 +522,37 @@ main.wrap { padding-block: 5rem 5.5rem; }
   /* Still needs to disappear — just without the theatrics. */
   .task-discarding { opacity: 0; }
 }
+
+/* --- library controls ------------------------------------------------------ */
+
+/* `nowrap` plus `flex: none` on purpose. A wrap-enabled flex container reports
+   its *wrapped* width as its intrinsic size, so it gets squeezed and splits the
+   controls over two rows even when there is space. Keeping it on one line means
+   its max-content width is honest; .section-head then wraps the whole block to
+   the next row when it genuinely does not fit. Mobile re-enables wrapping. */
+.library-controls {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  flex-wrap: nowrap;
+  flex: none;
+}
+/* Plain pixels, not min(240px, 100%): a percentage min-width is circular here,
+   so it is ignored while the row's intrinsic width is computed and then applied
+   afterwards — sizing the box too small and overflowing it. */
+.library-controls .search { min-width: 240px; }
+
+/* Square, so the arrow sits centred rather than floating in a wide button. */
+.btn-dir {
+  font-size: 1rem;
+  line-height: 1;
+  padding: .5rem;
+  min-width: 2.3rem;
+  justify-content: center;
+}
+
+@media (max-width: 620px) {
+  .library-controls { width: 100%; flex: 1 1 100%; flex-wrap: wrap; }
+  .library-controls .search { flex: 1 1 100%; }
+  .library-controls .select { flex: 1 1 auto; }
+}
