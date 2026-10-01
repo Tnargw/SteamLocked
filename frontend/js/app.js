@@ -625,29 +625,31 @@ async function renderSettings() {
 // --- how it works ------------------------------------------------------------
 
 const TIERS = [
-  ["Easy", "50% or more of owners have it"],
-  ["Medium", "20–50%"],
-  ["Hard", "5–20%"],
-  ["Insane", "under 5%"],
+  ["Easy", "50% of players or more have it"],
+  ["Medium", "20–50% of players"],
+  ["Hard", "5–20% of players"],
+  ["Insane", "under 5% of players"],
 ];
 
 const TROUBLE = [
   [
     "My library is empty",
-    "Game details privacy. Steam returns nothing at all rather than an error, " +
-      "so this looks like a bug but is a setting.",
+    "Nearly always the Game details setting above. When it's private, Steam sends back " +
+      "an empty list instead of an error, so it looks broken when it's really just a setting.",
   ],
   [
-    "I unlocked it, but it still says locked",
-    "Steam's API trails a few minutes behind an in-game unlock. Wait a moment and check again.",
+    "I earned it, but it still says locked",
+    "Steam can take a few minutes to register an unlock. Give it a moment and check again.",
   ],
   [
     "This game has no achievements",
-    "Some genuinely don't have any. Others only expose them to owners with public stats.",
+    "Some games genuinely don't have any. For others, Steam only shares them once your " +
+      "Game details setting is public.",
   ],
   [
-    "A game shows a coloured tile instead of its art",
-    "Steam doesn't serve cover art for every app, so we draw one from the game's initials.",
+    "A game shows a coloured tile instead of its artwork",
+    "Steam doesn't have cover art for every game, so we make a simple tile from its " +
+      "initials instead.",
   ],
   [
     "I can't roll",
@@ -656,10 +658,12 @@ const TROUBLE = [
 ];
 
 const LIMITS = [
-  "Unobtainable achievements can still be rolled — dead multiplayer servers, " +
-    "removed seasonal events. We don't filter them yet, so skipping is the workaround.",
-  "Achievements locked behind DLC can be rolled even if you don't own the DLC.",
-  "Rarity is Steam's global figure. It isn't adjusted for how you play.",
+  "Some achievements are impossible to get now — the servers shut down, or it was a " +
+    "limited-time event. SteamLocked can't tell the difference yet, so if you're handed " +
+    "one, skip it.",
+  "You can be given an achievement that needs add-on content you don't own.",
+  "Difficulty is based on all Steam players, not on how you play. Something rated easy " +
+    "can still be hard for you.",
 ];
 
 function renderHowItWorks() {
@@ -671,17 +675,17 @@ function renderHowItWorks() {
       h(
         "p",
         { class: "lede" },
-        "SteamLocked rolls you one achievement you haven't earned yet and locks it in " +
-          "until Steam says you've done it.",
+        "SteamLocked gives you one achievement you haven't earned yet. It stays your task " +
+          "until Steam confirms you've done it.",
       ),
 
       h("h2", {}, "Signing in"),
       h(
         "p",
         {},
-        "Steam doesn't offer OAuth, so sign-in goes through Steam's own OpenID page. You " +
-          "type your password on Steam, never here. All that comes back is your SteamID, " +
-          "which is already public.",
+        "Signing in takes you to Steam's own login page. You type your password there, " +
+          "never here — we never see it. All Steam sends back is your Steam ID: the number " +
+          "that already appears in the link to your Steam profile.",
       ),
 
       h("h2", {}, "Set Game details to Public"),
@@ -694,10 +698,11 @@ function renderHowItWorks() {
       h(
         "p",
         {},
-        "A public profile isn't enough on its own. ",
+        "Setting your profile to public isn't enough on its own. ",
         h("strong", {}, "Game details"),
-        " is a separate dropdown, and it's the one that gates both your library and your " +
-          "achievements. Changes can take a minute to reach the API.",
+        " is a separate dropdown, and it's the one that decides whether anything can see " +
+          "your games and achievements — SteamLocked included. After you change it, give " +
+          "Steam a minute to catch up.",
       ),
 
       h("h2", {}, "Rolling a task"),
@@ -711,15 +716,15 @@ function renderHowItWorks() {
       h(
         "p",
         {},
-        "The lock is per game, so you can have several tasks running across different games.",
+        "You get one task per game, so you can have a few on the go in different games at once.",
       ),
 
       h("h2", {}, "Difficulty"),
       h(
         "p",
         {},
-        "Steam publishes how many owners have unlocked each achievement. The tiers come " +
-          "straight from that:",
+        "Steam tracks what share of players have earned each achievement. That's where the " +
+          "difficulty comes from:",
       ),
       h(
         "ul",
@@ -733,50 +738,50 @@ function renderHowItWorks() {
           ),
         ),
       ),
-      h("p", { class: "fine" }, "A few achievements have no published figure. Those show as unrated."),
+      h("p", { class: "fine" }, "A few achievements don't have that number. Those show as unrated."),
 
       h("h2", {}, "Finishing a task"),
       h(
         "p",
         {},
-        "Unlock it in the game, then press ",
+        "Earn it in the game, then press ",
         h("strong", {}, "Did I get it?"),
-        ". The server asks Steam — you can't tell it you're done. If Steam still reports " +
-          "the achievement as locked, nothing changes.",
+        ". SteamLocked checks with Steam — you can't just say you're finished. If Steam " +
+          "still shows it as locked, nothing changes.",
       ),
 
       h("h2", {}, "Points and the leaderboard"),
       h(
         "p",
         {},
-        "Insane is worth 100, hard 50, medium 25, easy 10. Scoring is weighted by rarity " +
-          "because ranking on the number of tasks alone would just reward grinding easy " +
-          "achievements.",
+        "Insane is worth 100 points, hard 50, medium 25, easy 10. Rarer achievements are " +
+          "worth more, because otherwise the top of the board would just be whoever did the " +
+          "most easy ones.",
       ),
       h(
         "p",
         {},
-        "You're on the board by default. One toggle in ",
+        "You're on the board by default. One switch in ",
         h("a", { href: "#/settings" }, "Settings"),
-        " takes you off it, and your progress keeps counting either way. What's shown is " +
-          "your Steam name, avatar, ID and score — all of which are already public on Steam.",
+        " takes you off it, and your progress still counts either way. The board shows your " +
+          "Steam name, picture, ID and score — all things anyone can already see on your " +
+          "Steam profile.",
       ),
 
       h("h2", {}, "Your progress follows you"),
       h(
         "p",
         {},
-        "Everything is stored on the server against your SteamID, so you can roll a task " +
-          "on your PC and tick it off on your phone.",
+        "Your progress is saved to your Steam account rather than to the device you're " +
+          "using. Roll a task on your PC and tick it off on your phone.",
       ),
 
-      h("h2", {}, "What's stored"),
+      h("h2", {}, "What we keep"),
       h(
         "p",
         {},
-        "Your SteamID, display name, avatar URL, and your tasks. Not your password, email, " +
-          "or payment details — we're never given them. The Steam API key stays on the " +
-          "server and never reaches your browser.",
+        "Your Steam ID, your Steam name and profile picture, and your tasks. Not your " +
+          "password, email address, or payment details — Steam never gives us those.",
       ),
 
       h("h2", {}, "When something looks wrong"),
