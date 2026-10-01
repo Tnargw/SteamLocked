@@ -380,6 +380,20 @@ main.wrap { padding-block: 5rem 5.5rem; }
   .brand { font-size: 1rem; }
   .account-stat, .account-name { display: none; }
   .account-inner { gap: .5rem; flex-wrap: nowrap; }
+
+  /* Four nav links no longer fit beside the account block. Let the nav scroll
+     sideways instead of pushing Sign out off the edge — every link stays
+     reachable, and the scrollbar itself is hidden so it still reads as a bar. */
+  .nav {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .nav::-webkit-scrollbar { display: none; }
+  .nav-link { flex: none; }
+  #account { flex: none; }
 }
 
 /* --- header nav ------------------------------------------------------------- */
@@ -715,3 +729,54 @@ main.wrap { padding-block: 5rem 5.5rem; }
     ::picker(select) { transition: none; opacity: 1; transform: none; }
   }
 }
+
+/* --- prose pages (how it works) -------------------------------------------- */
+
+/* Capped measure: long lines are hard to track back from, and this page is the
+   one place in the app with real paragraphs. */
+.prose { max-width: 68ch; }
+.prose h1 { margin-bottom: .4rem; }
+.prose h2 {
+  margin: 2.25rem 0 .6rem;
+  font-size: 1.1rem;
+  color: var(--ink);
+}
+.prose h2:first-of-type { margin-top: 1.75rem; }
+.prose p { color: var(--ink-dim); }
+.prose strong { color: var(--ink); font-weight: 600; }
+.prose .lede { color: var(--ink); font-size: 1.05rem; }
+
+/* The click path to the Steam setting — set apart so it is findable by eye. */
+.path {
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  padding: .7rem .9rem;
+  color: var(--ink) !important;
+  font-size: .9rem;
+}
+
+.tiers { list-style: none; margin: 0 0 .75rem; padding: 0; }
+.tiers li {
+  display: flex;
+  align-items: center;
+  gap: .7rem;
+  padding: .3rem 0;
+  font-size: .92rem;
+}
+.tiers .tier { min-width: 4.6rem; text-align: center; }
+
+.faq { margin: 0; }
+.faq-item {
+  border-top: 1px solid var(--line);
+  padding: .85rem 0;
+}
+.faq-item:last-child { border-bottom: 1px solid var(--line); }
+.faq dt { font-weight: 600; color: var(--ink); margin-bottom: .25rem; }
+.faq dd { margin: 0; color: var(--ink-dim); font-size: .93rem; }
+
+.limits { margin: 0; padding-left: 1.1rem; color: var(--ink-dim); }
+.limits li { margin-bottom: .5rem; }
+
+.steps-more { margin-top: 1rem; color: var(--ink-dim); font-size: .92rem; }

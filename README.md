@@ -115,6 +115,17 @@ functions so the ordering is unit tested:
 - The choice is remembered per device in `localStorage` — a display preference,
   not account state, so it deliberately does not go to the server.
 
+## How it works page
+
+`#/how-it-works` is public — it exists for people deciding whether to sign in,
+so it renders signed out. It covers sign-in, the Steam privacy setting, the task
+rules, difficulty tiers, scoring, what is stored, a troubleshooting list, and a
+known-limitations section.
+
+The limitations block is deliberate: unobtainable and DLC-gated achievements can
+still be rolled, and saying so is more useful than letting someone discover it
+mid-task. It doubles as the roadmap.
+
 ## Selects
 
 The native dropdown popup is drawn by the OS: square corners, light

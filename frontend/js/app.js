@@ -145,6 +145,7 @@ function errorBox(message, retry) {
 const NAV = [
   ["#/", "Library", true],
   ["#/leaderboard", "Leaderboard", false],
+  ["#/how-it-works", "How it works", false],
   ["#/settings", "Settings", true],
 ];
 
@@ -242,6 +243,12 @@ async function renderLanding() {
           h("p", {}, body),
         ),
       ),
+    ),
+    h(
+      "p",
+      { class: "steps-more" },
+      h("a", { href: "#/how-it-works" }, "How it works in full"),
+      " — including the Steam privacy setting you'll need.",
     ),
     h("section", { class: "section" }, h("h2", {}, "Trending on Steam"), h("div", { id: "trending" }, spinner())),
   );
@@ -611,6 +618,178 @@ async function renderSettings() {
       h("h2", {}, "Account"),
       h("p", { class: "muted" }, `Signed in as ${me?.name ?? "\u2014"}.`),
       h("button", { class: "btn btn-ghost", onClick: signOut }, "Sign out"),
+    ),
+  );
+}
+
+// --- how it works ------------------------------------------------------------
+
+const TIERS = [
+  ["Easy", "50% or more of owners have it"],
+  ["Medium", "20–50%"],
+  ["Hard", "5–20%"],
+  ["Insane", "under 5%"],
+];
+
+const TROUBLE = [
+  [
+    "My library is empty",
+    "Game details privacy. Steam returns nothing at all rather than an error, " +
+      "so this looks like a bug but is a setting.",
+  ],
+  [
+    "I unlocked it, but it still says locked",
+    "Steam's API trails a few minutes behind an in-game unlock. Wait a moment and check again.",
+  ],
+  [
+    "This game has no achievements",
+    "Some genuinely don't have any. Others only expose them to owners with public stats.",
+  ],
+  [
+    "A game shows a coloured tile instead of its art",
+    "Steam doesn't serve cover art for every app, so we draw one from the game's initials.",
+  ],
+  [
+    "I can't roll",
+    "You already have a task in that game, or you've unlocked everything in it.",
+  ],
+];
+
+const LIMITS = [
+  "Unobtainable achievements can still be rolled — dead multiplayer servers, " +
+    "removed seasonal events. We don't filter them yet, so skipping is the workaround.",
+  "Achievements locked behind DLC can be rolled even if you don't own the DLC.",
+  "Rarity is Steam's global figure. It isn't adjusted for how you play.",
+];
+
+function renderHowItWorks() {
+  view.replaceChildren(
+    h(
+      "article",
+      { class: "prose" },
+      h("h1", {}, "How it works"),
+      h(
+        "p",
+        { class: "lede" },
+        "SteamLocked rolls you one achievement you haven't earned yet and locks it in " +
+          "until Steam says you've done it.",
+      ),
+
+      h("h2", {}, "Signing in"),
+      h(
+        "p",
+        {},
+        "Steam doesn't offer OAuth, so sign-in goes through Steam's own OpenID page. You " +
+          "type your password on Steam, never here. All that comes back is your SteamID, " +
+          "which is already public.",
+      ),
+
+      h("h2", {}, "Set Game details to Public"),
+      h("p", {}, "This is the one that catches people out."),
+      h(
+        "p",
+        { class: "path" },
+        "Steam → Profile → Edit Profile → Privacy Settings → Game details → Public",
+      ),
+      h(
+        "p",
+        {},
+        "A public profile isn't enough on its own. ",
+        h("strong", {}, "Game details"),
+        " is a separate dropdown, and it's the one that gates both your library and your " +
+          "achievements. Changes can take a minute to reach the API.",
+      ),
+
+      h("h2", {}, "Rolling a task"),
+      h(
+        "p",
+        {},
+        "Pick a game, pick a difficulty, roll. You get one achievement you haven't " +
+          "unlocked. That's your task for that game until you finish it or skip it — " +
+          "there's no rerolling. Skips are counted.",
+      ),
+      h(
+        "p",
+        {},
+        "The lock is per game, so you can have several tasks running across different games.",
+      ),
+
+      h("h2", {}, "Difficulty"),
+      h(
+        "p",
+        {},
+        "Steam publishes how many owners have unlocked each achievement. The tiers come " +
+          "straight from that:",
+      ),
+      h(
+        "ul",
+        { class: "tiers" },
+        ...TIERS.map(([tier, meaning]) =>
+          h(
+            "li",
+            {},
+            h("span", { class: `tier tier-${tier.toLowerCase()}` }, tier),
+            h("span", { class: "muted" }, meaning),
+          ),
+        ),
+      ),
+      h("p", { class: "fine" }, "A few achievements have no published figure. Those show as unrated."),
+
+      h("h2", {}, "Finishing a task"),
+      h(
+        "p",
+        {},
+        "Unlock it in the game, then press ",
+        h("strong", {}, "Did I get it?"),
+        ". The server asks Steam — you can't tell it you're done. If Steam still reports " +
+          "the achievement as locked, nothing changes.",
+      ),
+
+      h("h2", {}, "Points and the leaderboard"),
+      h(
+        "p",
+        {},
+        "Insane is worth 100, hard 50, medium 25, easy 10. Scoring is weighted by rarity " +
+          "because ranking on the number of tasks alone would just reward grinding easy " +
+          "achievements.",
+      ),
+      h(
+        "p",
+        {},
+        "You're on the board by default. One toggle in ",
+        h("a", { href: "#/settings" }, "Settings"),
+        " takes you off it, and your progress keeps counting either way. What's shown is " +
+          "your Steam name, avatar, ID and score — all of which are already public on Steam.",
+      ),
+
+      h("h2", {}, "Your progress follows you"),
+      h(
+        "p",
+        {},
+        "Everything is stored on the server against your SteamID, so you can roll a task " +
+          "on your PC and tick it off on your phone.",
+      ),
+
+      h("h2", {}, "What's stored"),
+      h(
+        "p",
+        {},
+        "Your SteamID, display name, avatar URL, and your tasks. Not your password, email, " +
+          "or payment details — we're never given them. The Steam API key stays on the " +
+          "server and never reaches your browser.",
+      ),
+
+      h("h2", {}, "When something looks wrong"),
+      h(
+        "dl",
+        { class: "faq" },
+        ...TROUBLE.map(([question, answer]) =>
+          h("div", { class: "faq-item" }, h("dt", {}, question), h("dd", {}, answer)),
+        ),
+      ),
+
+      h("h2", {}, "Known limitations"),
+      h("ul", { class: "limits" }, ...LIMITS.map((line) => h("li", {}, line))),
     ),
   );
 }
@@ -995,8 +1174,9 @@ function router() {
   const hash = location.hash || "#/";
   renderNav();
 
-  // The leaderboard is public, so it renders whether or not anyone is signed in.
+  // Both of these are public, so they render whether or not anyone is signed in.
   if (hash === "#/leaderboard") return renderLeaderboard();
+  if (hash === "#/how-it-works") return renderHowItWorks();
   if (!me) return renderLanding();
   if (hash === "#/settings") return renderSettings();
 
