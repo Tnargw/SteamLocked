@@ -1,7 +1,7 @@
 /**
  * SteamLocked backend API (Cloudflare Worker).
  *
- * A Taskman-style challenge tracker: sign in through Steam, pick a game, roll a
+ * An achievement challenge: sign in through Steam, pick a game, roll a
  * random achievement you haven't earned, and it stays locked in until you
  * actually unlock it — verified against the Steam API, not self-reported.
  *

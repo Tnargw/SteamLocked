@@ -1,8 +1,8 @@
 # SteamLocked
 
-A Taskman-style challenge tracker for Steam. Sign in through Steam, pick a game,
-roll a random achievement you haven't earned, and it stays locked in until Steam
-itself confirms the unlock.
+An achievement challenge tracker. Sign in through Steam, pick a game, roll a
+random achievement you haven't earned, and it stays locked in until Steam itself
+confirms the unlock.
 
 ## Layout
 
@@ -74,7 +74,7 @@ silently does nothing.
 - **The server owns the rules.** A client can ask to complete a task, but the
   Worker re-checks the Steam API before banking it. Never add a path that trusts
   the client's word for a completion.
-- **Taskman rules are enforced by the schema**, not application code:
+- **The one-task-per-game rule is enforced by the schema**, not application code:
   `active_tasks` is keyed on `(steamid, appid)` so a game can only hold one task;
   `completed_tasks` is keyed on `(steamid, appid, achievement)` so a retry can't
   double-credit.

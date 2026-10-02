@@ -1,6 +1,6 @@
 # SteamLocked
 
-A Taskman-style challenge tracker for any Steam game: roll a task, complete it, unlock the next.
+An achievement challenge for any Steam game: roll a task, complete it, unlock the next.
 
 Sign in through Steam, pick a game, and roll a random achievement you haven't
 earned. It stays locked in as your only task for that game until Steam itself

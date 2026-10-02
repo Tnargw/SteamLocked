@@ -6,7 +6,7 @@
  * just holds the last known copy so the UI can render synchronously, and
  * refreshes it from whatever each mutation returns.
  *
- * Taskman rules are enforced server-side: one active task per game, and a task
+ * The rules are enforced server-side: one active task per game, and a task
  * is only ever banked when Steam itself reports the achievement unlocked.
  */
 
