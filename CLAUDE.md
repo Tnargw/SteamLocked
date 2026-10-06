@@ -92,6 +92,7 @@ if it's green; the backend workflow applies D1 migrations before the Worker goes
 out. Required GitHub secrets: `CLOUDFLARE_API_TOKEN` (needs **D1: Edit** as well
 as Workers), `CLOUDFLARE_ACCOUNT_ID`, `STEAM_API_KEY`, `SESSION_SECRET`.
 
+Live site: <https://tnargw.github.io/SteamLocked/>
 Live API: <https://steamlocked.grant-watson.workers.dev>
 
 ## Known limitations

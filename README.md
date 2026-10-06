@@ -1,5 +1,7 @@
 # SteamLocked
 
+**[Open SteamLocked →](https://tnargw.github.io/SteamLocked/)**
+
 An achievement challenge for any Steam game: roll a task, complete it, unlock the next.
 
 Sign in through Steam, pick a game, and roll a random achievement you haven't
@@ -213,6 +215,7 @@ CORS and redirect allowlists.
   migrations before each deploy, so the schema is never behind the code. The
   API token needs **D1: Edit** in addition to the Workers permissions.
 
+Live site: <https://tnargw.github.io/SteamLocked/>
 Live API: <https://steamlocked.grant-watson.workers.dev>
 
 ## Notes
